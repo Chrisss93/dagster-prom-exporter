@@ -36,7 +36,7 @@ workflow:
     - docker logout $CI_REGISTRY
 
 
-lint (clippy):
+clippy:
   stage: build
   variables: 
     CODE_CLIMATE: |-
@@ -74,7 +74,7 @@ lint (clippy):
       - 222
 
 
-format (rustfmt):
+rustfmt:
   stage: build
   image: rustlang/rust:nightly-alpine3.17
   variables:
@@ -106,7 +106,7 @@ format (rustfmt):
 # service repo but instead be imported from the dedicated centralized security repo so that application developers
 # cannot circumvent potential dependency vulnerabilities by unilaterally creating exceptions.
 
-dependency-check (cargo-deny):
+dep-check:
   stage: build
   variables:
     CODE_CLIMATE: |-
@@ -201,7 +201,7 @@ dependency-check (cargo-deny):
       - 222
 
 
-dependency-audit (cargo-vet):
+dep-audit (cargo-vet):
   stage: build
   variables:
     CODE_CLIMATE: >-
@@ -331,6 +331,7 @@ expensive-tests:
     - when: manual
   script:
     - cargo llvm-cov nextest $TEST_ARGS -- --ignored
+  coverage: ''
 
 
 .benchmarks:
@@ -346,7 +347,7 @@ expensive-tests:
   artifacts:
     reports:
       # load_performance: benchmarks.json # deprecated in 17.0
-      metrics: benchmarks.json # Waiting for delta feature
+      # metrics: benchmarks.json # Waiting for delta feature
   dependencies: []
 
 
@@ -361,7 +362,7 @@ compile:
     matrix:
       - ARCH:
           - x86_64
-      - OS:
+        OS:
           - unknown-linux-gnu
           - apple-darwin
           - pc-windows-gnu
