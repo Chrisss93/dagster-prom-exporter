@@ -62,6 +62,7 @@ lint (clippy):
       chmod +x /usr/local/bin/jq
       )
   script:
+    - cargo clippy --all-targets --all-features
     - >-
       cargo clippy --all-targets --all-features --message-format json | jq | tee /dev/fd/2 |
       jq "$CODE_CLIMATE" > clippy.json
