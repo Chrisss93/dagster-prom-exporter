@@ -1,0 +1,107 @@
+query DagitQuery($concurrencyMetrics: Boolean!, $runsSince: Float!) {
+  runsOrError(filter: {statuses: [SUCCESS, FAILURE, CANCELED], updatedAfter: $runsSince}) {
+    ... on Runs {
+      count
+      results {
+        pipelineName
+        status
+        mode
+        startTime
+        endTime
+        updateTime
+        repositoryOrigin {
+          repositoryName
+          repositoryLocationName
+        }
+        stats {
+          ... on RunStatsSnapshot {
+            enqueuedTime
+            launchTime
+          }
+          __typename
+        }
+        stepStats {
+          stepKey
+          status
+          startTime
+          endTime
+          expectationResults {
+            label
+            success
+          }
+          attempts {
+            startTime
+          }
+        }
+        assetMaterializations {
+          stepKey
+          assetKey {
+            path
+          }
+          label
+          partition
+          timestamp
+        }
+      }
+    }
+    __typename
+  }
+  instance {
+    daemonHealth {
+      allDaemonStatuses {
+        id
+        daemonType
+        required
+        healthy
+        lastHeartbeatTime
+      }
+    }
+    concurrencyLimits @include(if: $concurrencyMetrics) {
+      concurrencyKey
+      slotCount
+      activeSlotCount
+      pendingStepCount
+      assignedStepCount
+    }
+  }
+  workspaceOrError {
+    ... on Workspace {
+      locationEntries {
+        name
+        loadStatus
+        updatedTimestamp
+        locationOrLoadError {
+          ... on RepositoryLocation {
+            name
+            repositories {
+              name
+              sensors {
+                name
+                sensorType
+                targets {
+                  pipelineName
+                }
+                sensorState {
+                  status
+                  runsCount
+                }
+                nextTick {
+                  timestamp
+                }
+              }
+              schedules {
+                name
+                mode
+                scheduleState {
+                  runsCount
+                }
+              }
+            }
+          }
+          __typename
+        }
+      }
+    }
+    __typename
+  }
+}
