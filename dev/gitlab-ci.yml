@@ -62,14 +62,9 @@ lint (clippy):
       chmod +x /usr/local/bin/jq
       )
   script:
-    - ls -alh /usr/bin
-    - ls -alh /usr/local/bin
-    - cargo check
-    - cargo clippy --all-targets --all-features
     - >-
-      cargo clippy --all-targets --all-features --message-format json | jq | tee /dev/fd/2 |
-      jq "$CODE_CLIMATE" > clippy.json
-    - '[ -s clippy.json ] && exit 1'
+      cargo clippy --all-targets --all-features --message-format json | jq -s "$CODE_CLIMATE" > clippy.json
+    - '[ -s clippy.json ] && cargo clippy --all-targets --all-features && exit 1'
   artifacts:
     when: always
     reports:
