@@ -6,7 +6,7 @@ variables:
 default:
   image: $JOB_IMAGE
   cache:
-    key: something
+    key: $CI_PROJECT_PATH
     paths:
       - /usr/local/cargo/bin
       - /usr/local/cargo/registry/cache
@@ -64,7 +64,7 @@ lint (clippy):
   script:
     - >-
       cargo clippy --all-targets --all-features --message-format json | 
-      tee /dev/tty |
+      tee /dev/fd/2 |
       jq "$CODE_CLIMATE" > clippy.json
     - '[ -s clippy.json ] && exit 1'
   artifacts:
@@ -88,7 +88,7 @@ format (rustfmt):
     - *install-jq
     - cargo +nightly version || rustup toolchain install nightly
   script:
-    - cargo +nightly fmt --all --message-format json | tee /dev/tty | jq "$CODE_CLIMATE" > rustfmt.json
+    - cargo +nightly fmt --all --message-format json | tee /dev/fd/2 | jq "$CODE_CLIMATE" > rustfmt.json
     - '[ -s rustfmt.json ] && exit 222'
   artifacts:
     when: always
@@ -341,7 +341,7 @@ expensive-tests:
   script:
     - >-
       cargo $TOOLCHAIN bench --locked --verbose --all-targets --all-features -- -Z unstable-options --format json |
-      tee /dev/tty |
+      tee /dev/fd/2 |
       jq $JQ_EXPR > benchmarks.json
   artifacts:
     reports:
