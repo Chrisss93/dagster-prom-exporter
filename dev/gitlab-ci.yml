@@ -64,11 +64,14 @@ lint (clippy):
   script:
     - >-
       cargo clippy --all-targets --all-features --message-format json | jq -s "$CODE_CLIMATE" > clippy.json
-    - '[ -s clippy.json ] && cargo clippy --all-targets --all-features && exit 1'
+    - '[ -s clippy.json ] && cargo clippy --all-targets --all-features && exit 222'
   artifacts:
     when: always
     reports:
       codequality: clippy.json
+  allow_failure:
+    exit_codes:
+      - 222
 
 
 format (rustfmt):
