@@ -182,10 +182,10 @@ dependency-check (cargo-deny):
       printf '%s' "$item" | jq --argjson line "$line" '.location.lines += {"begin": $line, "end": ($line + 1)}' >> patched.json
       done
     - jq -s '.' patched.json > deny-codeclimate.json
-    - >-
-      cargo metadata --format-version 1 |
-      jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
-    - jq -s --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN deny.json > deny-depscan.json
+    # - >-
+    #   cargo metadata --format-version 1 |
+    #   jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
+    # - jq -s --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN deny.json > deny-depscan.json
     - cargo deny --locked check -s || exit 222
   after_script:
     - rm -f deny.json patched.json meta.json
@@ -267,14 +267,14 @@ dependency-audit (cargo-vet):
       line=$(awk -F '\n' -v crate="$crate" '$0 ~ crate{print n+2} {n=n+NF-1}' RS='[[package]]' Cargo.lock)
       
       # Patch vet.json to add the line-number to the code-climate json schema.
-      printf '%s' "$item" | jq --argjson line "$line" '.location.lines += {"begin": $line, "end": ($line + 1)}' >> patched.json
+      printf '%s' "$item" | jq --argjson line "${line:-0}" '.location.lines += {"begin": $line, "end": ($line + 1)}' >> patched.json
       done
     - jq -s '.' patched.json > vet-codeclimate.json
-    - >-
-      cargo metadata --format-version 1 |
-      jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
-    - jq --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN vet.json > vet-depscan.json
-    - cargo vet --verbose info || exit 222
+    # - >-
+    #   cargo metadata --format-version 1 |
+    #   jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
+    # - jq --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN vet.json > vet-depscan.json
+    - cargo vet --locked --verbose info || exit 222
   after_script:
     - rm -f vet.json patched.json meta.json
   artifacts:
