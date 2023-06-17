@@ -1,0 +1,545 @@
+variables:
+  RUST_VERSION: 1.69.0
+  JOB_IMAGE: $CI_REGISTRY_IMAGE/rust-ci:$RUST_VERSION
+  # JOB_IMAGE: rust:${RUST_VERSION}
+
+default:
+  image: $JOB_IMAGE
+  cache:
+    key: something
+    paths:
+      - /usr/local/cargo/bin
+      - /usr/local/cargo/registry/cache
+      - /usr/local/bin/jq
+    policy: pull-push
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == 'push' && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - when: always
+
+
+.ci-image:
+  stage: .pre
+  image: docker:24.0.1
+  rules:
+    - if: $JOB_IMAGE =~ /^$CI_REGISTRY_IMAGE/
+      changes:
+        - Dockerfile
+  services:
+    - docker:24.0.1-dind
+  script:
+    - docker build -t $JOB_IMAGE --build-arg $RUST_VERSION dev
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $JOB_IMAGE
+    - docker logout $CI_REGISTRY
+
+
+lint (clippy):
+  stage: build
+  variables: 
+    CODE_CLIMATE: |-
+      .[].message | select(.code != null) | . as $$msg | .spans[] | [{
+      "location": {"path": .file_name , "lines": {"begin": .line_start, "end": .line_end}},
+      "description": $$msg.message,
+      "fingerprint": ($$msg.code.code + .file_name + (.line_start | tostring)) | @base64,
+      "check_name": "clippy: \($$msg.code.code)",
+      "severity": (
+      if [$$msg.level] | contains(["help", "info"]) then "minor"
+      elif $$msg.level == "warning" then "major"
+      elif $$msg.level == "error" then "critical"
+      else "blocker"  end),
+      "categories": [
+      "Bug Risk", "Clarity", "Compatibility", "Complexity", "Duplication",
+      "Performance", "Security", "Style"],
+      "type": "issue"
+      }]
+  before_script:
+    - &install-jq >-
+      which jq || wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
+      -O /usr/local/bin/jq &&
+      chmod +x /usr/local/bin/jq
+  script:
+    - >-
+      cargo clippy --all-targets --all-features --message-format json | 
+      tee /dev/tty |
+      jq $CODE_CLIMATE > clippy.json
+    - '[ -s clippy.json ] && exit 1'
+  artifacts:
+    when: always
+    reports:
+      codequality: clippy.json
+
+
+format (rustfmt):
+  stage: build
+  image: rustlang/rust:nightly-alpine3.17
+  variables:
+    CODE_CLIMATE: |-
+      .[] | .name as $$name | .mismatches[] | [{
+      "location": {"path": $$name, "lines": {"begin": .original_begin_line, "end": .original_end_line}},
+      "description": ("Expected: " + .expected),
+      "fingerprint": (.expected + $$name + (.original_begin_line | tostring)) | @base64,
+      "type": "issue", "categories": ["Style"], "severity": "info", "check_name": "rustfmt"
+      }]
+  before_script:
+    - *install-jq
+    - cargo +nightly version || rustup toolchain install nightly
+  script:
+    - cargo +nightly fmt --all --message-format json | tee /dev/tty | jq $CODE_CLIMATE > rustfmt.json
+    - '[ -s rustfmt.json ] && exit 222'
+  artifacts:
+    when: always
+    reports:
+      codequality: rustfmt.json
+  allow_failure:
+    exit_codes:
+      - 222
+
+# The two dependency-* jobs below expose their outputs as both code-quality and dependency-scanning reports
+# because dependency-scanning is not available in gitlab's Free tier. If the feature is moved or one has the
+# Ultimate Gitlab tier, remove the code-quality report and the 3rd + 4th script steps to avoid redundant signals
+# In a larger organization, the cargo-deny and cargo-vet configuration files would not be embedded with the
+# service repo but instead be imported from the dedicated centralized security repo so that application developers
+# cannot circumvent potential dependency vulnerabilities by unilaterally creating exceptions.
+
+dependency-check (cargo-deny):
+  stage: build
+  variables:
+    CODE_CLIMATE: |-
+      .[] | select((.type != "summary") and (.fields.code | contains("license-not-encountered") | not)) | .fields |
+      (.message + ":\n" + (.labels | map(.span + " -> " + .message) | join("\n"))) as $$desc |
+      {
+      "description": $$desc,
+      "fingerprint": $$desc | @base64,
+      "severity": (if .severity == "error" then "critical" else "major" end),
+      "check_name": "cargo-deny: \(.code)",
+      "type": "issue", "categories": ["Security"],
+      "location": {"path": "Cargo.lock", "lines": {}},
+      "crateId": .graphs[0].Krate | "name = \(.name | tojson)\nversion = \(.version | tojson)"
+      }
+    # https://gitlab.com/gitlab-org/security-products/security-report-schemas/-/blob/v15.0.6/dist/dependency-scanning-report-format.json
+    SCANNER: >-
+      {"id": "cargo-deny", "name": "cargo-deny", "version": "0.13.9", "vendor": {"name": "EmbarkStudios"},
+      "url": "https://github.com/EmbarkStudios/cargo-deny"}
+    DEP_SCAN: |-
+      map(select((.type != "summary") and (.fields.code | contains("license-not-encountered") | not)) | .fields) |
+      {
+        "version": "15.0.6",
+        "vulnerabilities": map(.graphs[0].Krate as $$crate | {
+          "id": (.message + $$crate.name + $$crate.version) | @base64,
+          "name": .message,
+          "description": (.labels | map(.span + " -> " + .message) | join("\n")),
+          "severity": (if .severity == "error" then "High" else "Medium"),
+          "identifiers": [{
+            "type": "licenses/bans/advisories/sources",
+            "name": "cargo-deny \($$crate.name) - \($$crate.version)",
+            "value": ($$crate.name + " - " + $$crate.version)
+          }],
+          "location": {
+            "file": "Cargo.lock",
+            "dependency": {"version": $$crate.version, "package": {"name": $$crate.name}}
+          }
+        }),
+        "dependency_files": [{"path": "Cargo.lock", "package_manager": "cargo", "dependencies": $$deps}],
+        "scan": {
+          "type": "dependency_scanning",
+          "status": (if . | length > 0 then "failure" else "success" end),
+          "start_time": $$start, "end_time": strftime("%Y-%m-%dT%H:%M:%S"),
+          "analyzer": $SCANNER, "scanner": $SCANNER
+        }
+      }
+    # Open Source Vulnerability Format: https://ossf.github.io/osv-schema  
+    # OSV: |-
+    
+    # Gitlab's license report is limited compared to cargo-deny (how do you encode exemptions?)
+    # which might lead to rigid false positives for dependency license non-compliance. Also it is
+    # an Ultimate-only feature making it awkward to fit and with a limited reward...
+    # https://gitlab.com/gitlab-org/security-products/analyzers/license-finder/-/blob/main/spec/fixtures/schema/v2.1.json
+    # LICENSE_SCAN: |-
+  before_script:
+    - *install-jq
+    - &binstall >-
+      which cargo-binstall ||
+      target=$(rustc -vV | grep -oP '(?<=host: ).*') &&
+      wget https://github.com/cargo-bins/cargo-binstall/releases/download/v0.23.0/cargo-binstall-$target.tgz -O - |
+      tar -xzvf - -C /usr/local/cargo/bin
+    - which cargo-deny || cargo binstall cargo-deny0.13.9
+  script:
+    - start=$(date -u +'%Y-%m-%dT%H:%M:%S')
+    - cargo deny --locked --format json check 2> deny.json
+    - |-
+      jq -sc "$CODE_CLIMATE" deny.json | while read -r item; do
+      crate=$(printf '%s' "$item" | jq -r '.crateId')
+
+      # Look up the line-number in Cargo.lock for the offending dependency reported by cargo-deny
+      line=$(awk -F '\n' -v crate="$crate" '$0 ~ crate{print n+2} {n=n+NF-1}' RS='[[package]]' Cargo.lock)
+      
+      # Patch deny.json to add the line-number to the code-climate json schema.
+      printf '%s' "$item" | jq --argjson line "$line" '.location.lines += {"begin": $line, "end": ($line + 1)}' >> patched.json
+      done
+    - jq -s '.' patched.json > deny-codeclimate.json
+    - >-
+      cargo metadata --format-version 1 |
+      jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
+    - jq -s --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN deny.json > deny-depscan.json
+    - cargo deny --locked check -s || exit 222
+  after_script:
+    - rm -f deny.json patched.json meta.json
+  artifacts:
+    when: always
+    reports:
+      codequality: deny-codeclimate.json
+      dependency_scanning: deny-depscan.json
+      # license_scanning: deny-licenses.json
+  allow_failure:
+    exit_codes:
+      - 222
+
+
+dependency-audit (cargo-vet):
+  stage: build
+  variables:
+    CODE_CLIMATE: >-
+      .suggest.suggestions[] | 
+      {
+      "description": "Dependency: \(.name) version: \(.suggested_diff.to) has not been audited.
+      \(.suggested_diff.diffstat.files_changes) file changes,
+      \(.suggested_diff.diffstat.insertions) insertions and
+      \(.suggested_diff.diffstat.deletions) deletions
+      have occured since its last audit in version: \(.suggested_diff.from).",
+      "fingerprint": .name | @base64,
+      "check_name": "cargo-vet suggested audit criteria: \(.suggested_criteria)",
+      "type": "issue", "categories": ["Security"], "severity": "info",
+      "location": {"path": "Cargo.lock", "lines": {}},
+      "crateId": "name = \(.name | tojson)\nversion = \(.suggested_diff.to | tojson)"
+      }
+    SCANNER: >-
+      {"id": "cargo-vet", "name": "cargo-vet", "version": "0.6.1", "vendor": {"name": "Mozilla"},
+      "url": "https://github.com/mozilla/cargo-vet"}
+    # https://gitlab.com/gitlab-org/security-products/security-report-schemas/-/blob/v15.0.6/dist/dependency-scanning-report-format.json
+    DEP_SCAN: |-
+      .suggest.suggestions |
+      {
+        "version": "15.0.6",
+        "vulnerabilities": map({
+          "id": "\(.suggested_criteria)\(.name)\(.suggested_diff.to)" | @base64,
+          "name": "Missing audit criteria: \(.suggested_criteria)",
+          "solution": "Audit \(.name) (\(.suggested_diff.to)) for the criteria: \(.suggested_criteria)",
+          "description": (
+            "Dependency: \(.name) version: \(.suggested_diff.to) has not been audited. " +
+            "\(.suggested_diff.diffstat.files_changes) file changes, \(.suggested_diff.diffstat.insertions) " +
+            "insertions and \(.suggested_diff.diffstat.deletions) deletions since its last audit in version: " +
+            .suggested_diff.from),
+          "severity": "Low",
+          "identifiers": [{
+            "type": "audits",
+            "name": "cargo-vet \(.name) - \(.suggested_diff.to)",
+            "value": (.name + " - " + .suggested_diff.to)
+          }],
+          "location": {
+            "file": "Cargo.lock",
+            "dependency": {"version": .suggested_diff.to, "package": {"name": .name}}}
+        }),
+        "dependency_files": [{"path": "Cargo.lock", "package_manager": "cargo", "dependencies": $$deps}],
+        "scan": {
+          "type": "dependency_scanning",
+          "status": (if . | length > 0 then "failure" else "success" end),
+          "start_time": $$start, "end_time": strftime("%Y-%m-%dT%H:%M:%S"),
+          "analyzer": $SCANNER, "scanner": $SCANNER
+        }
+      }
+  before_script:
+    - *install-jq
+    - *binstall
+    - which cargo-vet || cargo binstall cargo-vet0.6.1
+  script:
+    - start=$(date -u +'%Y-%m-%dT%H:%M:%S')
+    - cargo vet --output-format json --output-file vet.json
+    - |-
+      jq -c $CODE_CLIMATE vet.json | while read -r item; do
+      crate=$(printf '%s' "$item" | jq -r '.crateId')
+
+      # Look up the line-number in Cargo.lock for the offending dependency reported by cargo-vet
+      line=$(awk -F '\n' -v crate="$crate" '$0 ~ crate{print n+2} {n=n+NF-1}' RS='[[package]]' Cargo.lock)
+      
+      # Patch vet.json to add the line-number to the code-climate json schema.
+      printf '%s' "$item" | jq --argjson line "$line" '.location.lines += {"begin": $line, "end": ($line + 1)}' >> patched.json
+      done
+    - jq -s '.' patched.json > vet-codeclimate.json
+    - >-
+      cargo metadata --format-version 1 |
+      jq '.packages | map({"version": .version, "package": {"name": .name}})' > meta.json
+    - jq --arg start $start --argjson deps "$(<meta.json)" $DEP_SCAN vet.json > vet-depscan.json
+    - cargo vet --verbose info || exit 222
+  after_script:
+    - rm -f vet.json patched.json meta.json
+  artifacts:
+    when: always
+    reports:
+      codequality: vet-codeclimate.json
+      dependency_scanning: vet-depscan.json
+  allow_failure:
+    exit_codes:
+      - 222
+
+
+unit-tests: &unit-tests
+  stage: test
+  variables:
+    TEST_ARGS: >-
+      --config-file .cargo/nextest.toml --cobertura --output-path coverage.xml
+      --locked --verbose
+      --all-targets --all-features
+  before_script:
+    - *install-jq
+    - *binstall
+    - which cargo-llvm-cov || cargo binstall cargo-llvm-cov@0.5.19
+    - which cargo-nextext || cargo binstall cargo-nextest@0.9.53
+  script:
+    - '[ $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH ] && FILTER_ARGS=--include-ignored'
+    - cargo llvm-cov nextest $TEST_ARGS -- $FILTER_ARGS
+  after_script:
+    - cargo llvm-cov report
+    - cargo llvm-cov report --html
+    - >-
+      cargo llvm-cov report --json |
+      jq -r '(.data | map(.totals.regions.covered) | add) / (.data | map(.totals.regions.count) | add) |
+      "Region coverage: \(. * 100)%"'
+  coverage: '/^Region coverage: \d+(\.\d+)?%$/'
+  artifacts: &test-artifacts
+    when: always
+    reports:
+      junit: target/nextest/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: target/llvm-cov/coverage.xml
+    paths:
+      - target/llvm-cov/html/
+  dependencies: []
+
+
+expensive-tests:
+  <<: *unit-tests
+  rules: &manualExceptOnMaster
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      when: never
+    - when: manual
+  script:
+    - cargo llvm-cov nextest $TEST_ARGS -- --ignored
+
+
+.benchmarks:
+  stage: test
+  rules: *manualExceptOnMaster
+  variables:
+    TOOLCHAIN: +stable
+    # JQ_EXPR: |-
+  script:
+    - >-
+      cargo $TOOLCHAIN bench --locked --verbose --all-targets --all-features -- -Z unstable-options --format json |
+      tee /dev/tty |
+      jq $JQ_EXPR > benchmarks.json
+  artifacts:
+    reports:
+      # load_performance: benchmarks.json # deprecated in 17.0
+      metrics: benchmarks.json # Waiting for delta feature
+  dependencies: []
+
+
+compile:
+  stage: deploy
+  script:
+   - cargo build --locked --verbose --release --timings --target $ARCH-$OS
+   - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$ARCH-$OS.html
+   - tar czvf target/releases/$CI_PROJECT_NAME-$ARCH-$OS.tar.gz target/releases/$CI_PROJECT_NAME
+   - echo $OS | grep -q '.*-pc-windows-.*' && zip target/$ARCH-$OS.zip target/releases/$CI_PROJECT_NAME || true
+  parallel:
+    matrix:
+      - ARCH:
+          - x86_64
+      - OS:
+          - unknown-linux-gnu
+          - apple-darwin
+          - pc-windows-gnu
+  artifacts:
+    paths:
+      - target/releases/$CI_PROJECT_NAME-$ARCH-$OS.{tar.gz,zip}
+      - target/cargo-timings/$ARCH-$OS.html
+  dependencies: []
+
+pages:
+  stage: .post
+  rules:
+    - if: $CI_COMMIT_TAG
+  variables:
+    TAG: $CI_COMMIT_TAG
+    PKG_REGISTRY: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic
+    ASSETS: |-
+      [
+        {
+          "name": "Documentation",
+          "link_type": "runbook",
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/target/docs.tar.gz"
+        },
+        {
+          "name": "Full test coverage report",
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/target/coverage.tar.gz"
+        },
+        {
+          "name": "Build time report",
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/public/build-time.html"
+        },
+        {
+          "name": "Third party licenses",
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/public/licences.html"
+        }
+      ]
+  before_script:
+    - *install-jq
+    - *binstall
+    - which cargo-about || cargo binstall cargo-about@0.5.6
+    # - which mdbook || cargo binstall mdbook@0.4.29
+    - mkdir -p public
+  script:
+    - 'echo "Creating gitlab release: ${TAG/#v}"'
+    - cargo doc --no-deps && tar czvf target/docs.tar.gz target/doc
+    - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
+    # -  mdbook build -d public/book dev/book && tar czvf book.tar.gz public/book
+    - tar czvf target/coverage.tar.gz target/llvm-cov/html
+    - cd target/releases
+    - |-
+      for target in *
+      do
+        curl -v -H "JOB-TOKEN: $CI_JOB_TOKEN" -T $target $PKG_REGISTRY/$CI_COMMIT_TAG/$target
+        cat <<EOF >> links.txt
+        {
+          "name": "Binary (${target%%.*})",
+          "url": "$PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-$target",
+          "direct_asset_path": "binaries/$CI_PROJECT_NAME-target"
+        }
+        EOF
+      done
+    - >-
+      jq -s --arg tag "${TAG/#v}" --argjson assets $ASSETS '
+      {
+        "name": "$tag",
+        "tag_name": "$CI_COMMIT_TAG",
+        "assets": {"links": (. + $assets)},
+        "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
+      }' links.txt |
+      curl $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases -X POST -d -
+      -H "PRIVATE-TOKEN: $CI_JOB_TOKEN" -H 'Content-Type: application/json' |
+      jq
+    - cd ../..
+    - echo "Setting up Pages"
+    - mv target/doc public/docs
+    - mv target/cargo-timings public/build-times
+    - mv target/llvm-cov/html public/test-coverage
+    - 'cp public/build-times/$(rustc -vV | grep -oP "(?<=host: ).*").html build-time.html'
+    - >-
+      sed "
+      s|__STUB_NAME__|$CI_PROJECT_NAME|g;
+      s|__STUB_VERSION__|${TAG/#v}|g;
+      s|__STUB_PIPELINE_ID__|$CI_PIPELINE_ID|g;
+      s|__STUB_SOURCE_URL__|$CI_PROJECT_URL|g;
+      s|__STUB_RELEASE_URL__|$CI_PROJECT_URL/-/releases/${TAG/#v}|g;
+      s|__STUB_PIPELINE_URL__|$CI_PIPELINE_URL|g;
+      s|__STUB__TIMING__URL__|$(rustc -vV | grep -oP '(?<=host: ).*').html|g;
+      s|__STUB_DEPS__|$(cargo tree -e no-dev)|g;
+      " dev/index.html > public/index.html
+  artifacts:
+    paths:
+      - public
+      - '{docs,coverage,book}.tar.gz'
+
+
+.pages:
+  stage: .post
+  rules:
+    - if: $CI_COMMIT_TAG
+  variables:
+    TAG: $CI_COMMIT_TAG
+    PKG_REGISTRY: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic
+  before_script:
+    - *binstall
+    - which cargo-about || cargo binstall cargo-about@0.5.6
+    # - which mdbook || cargo binstall mdbook@0.4.29
+  script:
+    - mkdir public
+    - mv target/cargo-timings public/build-times
+    - mv target/llvm-cov/html public/test-coverage
+    - cargo doc --no-deps && mv target/doc public/doc
+    # - mdbook build -d public/book dev/book
+    - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
+    - >-
+      sed "
+      s|__STUB_NAME__|$CI_PROJECT_NAME|g;
+      s|__STUB_VERSION__|${TAG/#v}|g;
+      s|__STUB_PIPELINE_ID__|$CI_PIPELINE_ID|g;
+      s|__STUB_SOURCE_URL__|$CI_PROJECT_URL|g;
+      s|__STUB_RELEASE_URL__|$CI_PROJECT_URL/-/releases/${TAG/#v}|g;
+      s|__STUB_PIPELINE_URL__|$CI_PIPELINE_URL|g;
+      s|__STUB__TIMING__URL__|$(rustc -vV | grep -oP '(?<=host: ).*').html|g;
+      s|__STUB_DEPS__|$(cargo tree -e no-dev)|g;
+      " dev/index.html > public/index.html
+    - 'echo "Creating gitlab release: ${TAG/#v}"'
+    - tar czvf docs.tar.gz public/doc
+    - tar czvf coverage.tar.gz public/test-coverage
+    # - tar czvf book.tar.gz public/book
+    - 'cp public/build-times/$(rustc -vV | grep -oP "(?<=host: ).*").html build-time.html'
+  artifacts:
+    paths:
+      - public
+      - '{docs,coverage,book}.tar.gz'
+      - build-time.html
+  release:
+    tag_name: ${TAG/#v}
+    description: |-
+      Triggered by git tag: $CI_COMMIT_TAG
+      
+      $CI_COMMIT_TAG_MESSAGE
+    assets:
+      links:
+        - name: Binary (GNU linux)
+          link_type: package
+          url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-unknown-linux-gnu.tar.gz
+          filepath: /binaries/$CI_PROJECT_NAME-x86_64-unknown-linux-gnu.tgz
+
+        - name: Binary (macOS)
+          link_type: package
+          url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-apple-darwin.tar.gz
+          filepath: /binaries/$CI_PROJECT_NAME-x86_64-apple-darwin.tgz
+
+        - name: Binary (Windows)
+          link_type: package
+          url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-pc-windows-gnu.zip
+          filepath: /binaries/$CI_PROJECT_NAME-x86_64-pc-windows-gnu.zip
+
+        - name: Documentation
+          link_type: runbook
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/docs.tar.gz
+          # url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/docs.tar.gz?job=pages
+          filepath: docs.tar.gz
+        
+        # - name: Book
+        #   link_type: runbook
+        #   url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/book.tar.gz
+        #   # url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/book.tar.gz?job=pages
+        #   filepath: book.tar.gz
+
+        - name: Build time report
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/build-time.html
+          # url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/build.html?job=pages
+          filepath: build-time.html
+
+        - name: Full test coverage report
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/coverage.tar.gz
+          # url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/coverage.tar.gz?job=pages
+          filepath: coverage.tar.gz
+
+        - name: Third party licenses
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/public/licences.html
+          # url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/public/licences.html?job=pages
+          filepath: licenses.html
