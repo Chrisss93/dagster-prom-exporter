@@ -88,7 +88,7 @@ format (rustfmt):
     - cargo +nightly version || rustup toolchain install nightly
   script:
     - cargo +nightly fmt --all --message-format json | jq "$CODE_CLIMATE" > rustfmt.json
-    - '[ -s rustfmt.json ] && echo 'Rust formatting issues' && exit 222'
+    - '[ -s rustfmt.json ] && echo "Rust formatting issues found" && exit 222'
   artifacts:
     when: always
     reports:
