@@ -331,7 +331,7 @@ expensive-tests:
     - when: manual
   script:
     - cargo llvm-cov nextest $TEST_ARGS -- --ignored
-  coverage: ''
+  coverage:
 
 
 .benchmarks:
