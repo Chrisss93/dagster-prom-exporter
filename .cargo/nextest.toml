@@ -16,4 +16,4 @@ path                 = "junit.xml"
 report-name          = "nextest-run"
 store-success-output = true
 store-failure-output = true
-fail-false            = false
+fail-fast            = false

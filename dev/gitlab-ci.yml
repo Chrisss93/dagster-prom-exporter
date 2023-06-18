@@ -1,16 +1,17 @@
 variables:
   RUST_VERSION: 1.69.0
-  JOB_IMAGE: $CI_REGISTRY_IMAGE/rust-ci:$RUST_VERSION
+  JOB_IMAGE: registry.gitlab.com/chrisss93/rust-ci:$RUST_VERSION
   # JOB_IMAGE: rust:${RUST_VERSION}
+  CARGO_HOME: $CI_BUILDS_DIR/cargo_home
 
 default:
   image: $JOB_IMAGE
-  cache:
+  cache: &global_cache
     key: $CI_PROJECT_PATH
     paths:
-      - /usr/local/cargo/bin
-      - /usr/local/cargo/registry/cache
-      - /usr/local/bin/jq
+      - $CARGO_HOME/bin
+      - $CARGO_HOME/registry/cache
+      - $CI_BUILDS_DIR/jq
     policy: pull-push
 
 workflow:
@@ -18,23 +19,6 @@ workflow:
     - if: $CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == 'push' && $CI_OPEN_MERGE_REQUESTS
       when: never
     - when: always
-
-
-.ci-image:
-  stage: .pre
-  image: docker:24.0.1
-  rules:
-    - if: $JOB_IMAGE =~ /^$CI_REGISTRY_IMAGE/
-      changes:
-        - Dockerfile
-  services:
-    - docker:24.0.1-dind
-  script:
-    - docker build -t $JOB_IMAGE --build-arg $RUST_VERSION dev
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker push $JOB_IMAGE
-    - docker logout $CI_REGISTRY
-
 
 clippy:
   stage: build
@@ -58,13 +42,14 @@ clippy:
   before_script:
     - &install-jq >-
       which jq || (
-      wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O /usr/local/bin/jq &&
-      chmod +x /usr/local/bin/jq
+      wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O $CI_BUILDS_DIR/jq &&
+      chmod +x $CI_BUILDS_DIR/jq && ln -s $CI_BUILDS_DIR/jq /usr/local/jq
       )
   script:
     - >-
-      cargo clippy --all-targets --all-features --message-format json | jq -s "$CODE_CLIMATE" > clippy.json
-    - '[ -s clippy.json ] && cargo clippy --all-targets --all-features && exit 222'
+      cargo clippy --all-targets --all-features --locked --message-format json |
+      jq -s "$CODE_CLIMATE" > clippy.json
+    - '[ -s clippy.json ] && cargo clippy --all-targets --all-features --locked && exit 222'
   artifacts:
     when: always
     reports:
@@ -166,7 +151,7 @@ dep-check:
       which cargo-binstall || (
       target=$(rustc -vV | grep -oP '(?<=host: ).*') &&
       wget https://github.com/cargo-bins/cargo-binstall/releases/download/v0.23.0/cargo-binstall-$target.tgz -O - |
-      tar -xzvf - -C /usr/local/cargo/bin
+      tar -xzvf - -C /usr/local/bin
       )
     - which cargo-deny || cargo binstall cargo-deny0.13.9
   script:
@@ -292,8 +277,11 @@ unit-tests: &unit-tests
   stage: test
   variables:
     TEST_ARGS: >-
-      --config-file .cargo/nextest.toml --cobertura --output-path coverage.xml
-      --locked --verbose
+      --config-file .cargo/nextest.toml
+      --cobertura
+      --output-path target/llvm-cov-target/coverage.xml
+      --locked
+      --verbose
       --all-targets --all-features
   before_script:
     - *install-jq
@@ -314,7 +302,7 @@ unit-tests: &unit-tests
   artifacts: &test-artifacts
     when: always
     reports:
-      junit: target/nextest/junit.xml
+      junit: target/nextest/default/junit.xml
       coverage_report:
         coverage_format: cobertura
         path: target/llvm-cov/coverage.xml
@@ -351,25 +339,57 @@ expensive-tests:
   dependencies: []
 
 
-compile:
+compile:linux-gnu: &compile
   stage: deploy
+  variables:
+    CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
   script:
-   - cargo build --locked --verbose --release --timings --target $ARCH-$OS
-   - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$ARCH-$OS.html
-   - tar czvf target/releases/$CI_PROJECT_NAME-$ARCH-$OS.tar.gz target/releases/$CI_PROJECT_NAME
-   - echo $OS | grep -q '.*-pc-windows-.*' && zip target/$ARCH-$OS.zip target/releases/$CI_PROJECT_NAME || true
-  parallel:
-    matrix:
-      - ARCH:
-          - x86_64
-        OS:
-          - unknown-linux-gnu
-          - apple-darwin
-          - pc-windows-gnu
+   - cargo build --locked --release --timings
+   - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$CARGO_BUILD_TARGET.html
+  after_script:
+   - tar czvf target/binaries/$CARGO_BUILD_TARGET.tar.gz target/$CARGO_BUILD_TARGET/release/app
   artifacts:
     paths:
-      - target/releases/$CI_PROJECT_NAME-$ARCH-$OS.{tar.gz,zip}
-      - target/cargo-timings/$ARCH-$OS.html
+      - target/binaries/*
+      - target/cargo-timings/*.html
+  dependencies: []
+
+compile:linux-musl:
+  <<: *compile
+  image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
+  variables:
+    CARGO_BUILD_TARGET: x86_64-unknown-linux-musl
+    RUSTFLAGS: -C link-arg=-fuse-ld=mold
+
+compile:windows:
+  <<: *compile
+  image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
+  variables:
+    CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
+    RUSTFLAGS: -C linker=x86_64-w64-mingw32-gcc -C ar=/usr/x86_64-w64-mingw32/bin/ar
+  afer_script:
+    - zip target/binaries/windows-gnu.zip target/$CARGO_BUILD_TARGET/release/app
+
+
+docker-image:
+  stage: deploy
+  image:
+    name: gcr.io/kaniko-project/executor:v1.11.0-debug # Necessary because a shell is required
+    entrypoint: [""]
+  # rules:
+  #   - if: $CI_COMMIT_TAG
+  variables:
+    TAG: something
+  before_script:
+    - auth=$(echo -n "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" | base64)
+    - 'echo "{\"auths\": {\"$CI_REGISTRY\": {\"auth\": \"$auth\"}}}" > /kaniko/.docker/config.json'
+  script:
+    - >-
+      /kaniko/executor
+      --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
+      --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
+      --cache
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${${TAG:-$CI_COMMIT_TAG}/#v}
   dependencies: []
 
 pages:
@@ -411,7 +431,7 @@ pages:
     - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
     # -  mdbook build -d public/book dev/book && tar czvf book.tar.gz public/book
     - tar czvf target/coverage.tar.gz target/llvm-cov/html
-    - cd target/releases
+    - cd target/binaries
     - |-
       for target in *
       do
@@ -419,8 +439,8 @@ pages:
         cat <<EOF >> links.txt
         {
           "name": "Binary (${target%%.*})",
-          "url": "$PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-$target",
-          "direct_asset_path": "binaries/$CI_PROJECT_NAME-target"
+          "url": "$PKG_REGISTRY/$CI_COMMIT_TAG/$target",
+          "direct_asset_path": "binaries/$target"
         }
         EOF
       done
@@ -510,10 +530,10 @@ pages:
           url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-unknown-linux-gnu.tar.gz
           filepath: /binaries/$CI_PROJECT_NAME-x86_64-unknown-linux-gnu.tgz
 
-        - name: Binary (macOS)
-          link_type: package
-          url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-apple-darwin.tar.gz
-          filepath: /binaries/$CI_PROJECT_NAME-x86_64-apple-darwin.tgz
+        # - name: Binary (macOS)
+        #   link_type: package
+        #   url: $PKG_REGISTRY/$CI_COMMIT_TAG/$CI_PROJECT_NAME-x86_64-apple-darwin.tar.gz
+        #   filepath: /binaries/$CI_PROJECT_NAME-x86_64-apple-darwin.tgz
 
         - name: Binary (Windows)
           link_type: package
