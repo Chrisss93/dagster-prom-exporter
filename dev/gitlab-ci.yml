@@ -43,7 +43,7 @@ clippy:
     - &install-jq >-
       which jq || (
       wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O $CI_PROJECT_DIR/jq &&
-      chmod +x $CI_PROJECT_DIR/jq && ln -s $CI_PROJECT_DIR/jq /usr/local/jq
+      chmod +x $CI_PROJECT_DIR/jq && ln -s $CI_PROJECT_DIR/jq /usr/local/bin/jq
       )
   script:
     - >-
@@ -186,7 +186,7 @@ dep-check:
       - 222
 
 
-dep-audit (cargo-vet):
+dep-audit:
   stage: build
   variables:
     CODE_CLIMATE: >-
