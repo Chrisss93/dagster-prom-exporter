@@ -367,7 +367,7 @@ compile:windows:
   variables:
     CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
     RUSTFLAGS: -C linker=x86_64-w64-mingw32-gcc -C ar=/usr/x86_64-w64-mingw32/bin/ar
-  afer_script:
+  after_script:
     - zip target/binaries/windows-gnu.zip target/$CARGO_BUILD_TARGET/release/app
 
 
