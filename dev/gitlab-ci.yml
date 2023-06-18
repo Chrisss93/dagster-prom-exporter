@@ -2,7 +2,7 @@ variables:
   RUST_VERSION: 1.69.0
   JOB_IMAGE: registry.gitlab.com/chrisss93/rust-ci:$RUST_VERSION
   # JOB_IMAGE: rust:${RUST_VERSION}
-  CARGO_HOME: $CI_BUILDS_DIR/cargo_home
+  CARGO_HOME: $CI_PROJECT_DIR/cargo_home
 
 default:
   image: $JOB_IMAGE
@@ -11,7 +11,7 @@ default:
     paths:
       - $CARGO_HOME/bin
       - $CARGO_HOME/registry/cache
-      - $CI_BUILDS_DIR/jq
+      - $CI_PROJECT_DIR/jq
     policy: pull-push
 
 workflow:
@@ -42,8 +42,8 @@ clippy:
   before_script:
     - &install-jq >-
       which jq || (
-      wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O $CI_BUILDS_DIR/jq &&
-      chmod +x $CI_BUILDS_DIR/jq && ln -s $CI_BUILDS_DIR/jq /usr/local/jq
+      wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O $CI_PROJECT_DIR/jq &&
+      chmod +x $CI_PROJECT_DIR/jq && ln -s $CI_PROJECT_DIR/jq /usr/local/jq
       )
   script:
     - >-
