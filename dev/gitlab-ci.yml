@@ -9,9 +9,7 @@ default:
   cache: &global_cache
     key: $CI_PROJECT_PATH
     paths:
-      - $CARGO_HOME/bin
       - $CARGO_HOME/registry/cache
-      - $CI_PROJECT_DIR/jq
     policy: pull-push
 
 workflow:
@@ -83,6 +81,10 @@ rustfmt:
   allow_failure:
     exit_codes:
       - 222
+  cache:
+    key: $CI_PROJECT_PATH-$CI_JOB_NAME
+    paths:
+      - $CI_PROJECT_DIR/jq
 
 # The two dependency-* jobs below expose their outputs as both code-quality and dependency-scanning reports
 # because dependency-scanning is not available in gitlab's Free tier. If the feature is moved or one has the
@@ -184,6 +186,10 @@ dep-check:
   allow_failure:
     exit_codes:
       - 222
+  cache: &binstall
+    key: $CI_PROJECT_PATH-cargo-binstall
+    path:
+      - $CARGO_HOME/bin
 
 
 dep-audit:
@@ -271,6 +277,7 @@ dep-audit:
   allow_failure:
     exit_codes:
       - 222
+  cache: *binstall
 
 
 unit-tests: &unit-tests
@@ -309,6 +316,7 @@ unit-tests: &unit-tests
     paths:
       - target/llvm-cov/html/
   dependencies: []
+  cache: *binstall
 
 
 expensive-tests:
@@ -345,7 +353,7 @@ compile:linux-gnu: &compile
     CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
   before_script:
     - printenv
-    - cargo build --locked --release --timings
+    - cargo build --verbose --locked --release --timings
     - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$CARGO_BUILD_TARGET.html
     - mkdir -p binaries
   script:
@@ -353,7 +361,7 @@ compile:linux-gnu: &compile
   artifacts:
     paths:
       - binaries/*
-      - target/cargo-timings/*.html
+      - target/cargo-timings/$CARGO_BUILD_TARGET.html
   dependencies: []
 
 compile:linux-musl:
@@ -391,7 +399,8 @@ docker-image:
       --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
       --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
       --cache
-      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${${TAG:-$CI_COMMIT_TAG}/#v}
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${$CI_COMMIT_MESSAGE/#v}
+#      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${${TAG:-$CI_COMMIT_TAG}/#v}
   dependencies: []
 
 pages:
