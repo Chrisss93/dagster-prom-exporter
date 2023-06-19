@@ -188,7 +188,7 @@ dep-check:
       - 222
   cache: &binstall
     key: $CI_PROJECT_PATH-cargo-binstall
-    path:
+    paths:
       - $CARGO_HOME/bin
 
 
