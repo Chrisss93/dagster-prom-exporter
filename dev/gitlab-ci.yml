@@ -186,7 +186,7 @@ dep-check:
   allow_failure:
     exit_codes:
       - 222
-  cache: &binstall
+  cache: &cargo-bin-cache
     key: $CI_PROJECT_PATH-cargo-binstall
     paths:
       - $CARGO_HOME/bin
@@ -277,7 +277,7 @@ dep-audit:
   allow_failure:
     exit_codes:
       - 222
-  cache: *binstall
+  cache: *cargo-bin-cache
 
 
 unit-tests: &unit-tests
@@ -316,7 +316,7 @@ unit-tests: &unit-tests
     paths:
       - target/llvm-cov/html/
   dependencies: []
-  cache: *binstall
+  cache: *cargo-bin-cache
 
 
 expensive-tests:
@@ -528,6 +528,7 @@ pages:
       - public
       - '{docs,coverage,book}.tar.gz'
       - build-time.html
+  cache: *cargo-bin-cache
   release:
     tag_name: ${TAG/#v}
     description: |-
