@@ -460,7 +460,7 @@ pages:
         "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$TEST_JOB_ID/artifacts"
       }
       EOF
-    - cd target/binaries
+    - cd binaries
     - |-
       for target in *
       do
