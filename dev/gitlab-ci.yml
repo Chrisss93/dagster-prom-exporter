@@ -7,7 +7,7 @@ variables:
 default:
   image: $JOB_IMAGE
   cache: &global_cache
-    key: $CI_PROJECT_PATH
+    key: $CI_PROJECT_PATH-cargo-deps
     paths:
       - $CARGO_HOME/registry/cache
     policy: pull-push
@@ -352,8 +352,7 @@ compile:linux-gnu: &compile
   variables:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
   before_script:
-    - printenv
-    - cargo build --verbose --locked --release --timings
+    - cargo build --locked --release --timings
     - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$CARGO_BUILD_TARGET.html
     - mkdir -p binaries
   script:
@@ -363,6 +362,8 @@ compile:linux-gnu: &compile
       - binaries/*
       - target/cargo-timings/$CARGO_BUILD_TARGET.html
   dependencies: []
+  needs:
+    - unit-tests
 
 compile:linux-musl:
   <<: *compile
@@ -399,9 +400,11 @@ docker-image:
       --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
       --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
       --cache
-      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${$CI_COMMIT_MESSAGE/#v}
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${CI_COMMIT_MESSAGE/#v}
 #      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${${TAG:-$CI_COMMIT_TAG}/#v}
   dependencies: []
+  needs:
+    - unit-tests
 
 pages:
   stage: .post
@@ -499,7 +502,7 @@ pages:
   before_script:
     - *binstall
     - which cargo-about || cargo binstall -y cargo-about@0.5.6
-    # - which mdbook || cargo binstall mdbook@0.4.29
+    # - which mdbook || cargo binstall -y mdbook@0.4.29
   script:
     - mkdir public
     - mv target/cargo-timings public/build-times
