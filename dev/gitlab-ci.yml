@@ -403,7 +403,7 @@ docker-image:
       --cache
       --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${tag/#v}
   dependencies: []
- needs:
+  needs:
    - jobs: unit-tests
       artifacts: false
 
