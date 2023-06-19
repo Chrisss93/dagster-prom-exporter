@@ -18,7 +18,7 @@ workflow:
       when: never
     - when: always
 
-.clippy:
+clippy:
   stage: build
   variables:
     CLIPPY_FLAGS: --all-targets --all-features --locked --no-deps
@@ -58,13 +58,13 @@ workflow:
     exit_codes:
       - 222
   cache:
-    key: $CI_PROJECT_PATH-$CI_JOB_NAME-$CI_COMMIT_REF_NAME
+    key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-compiled-deps
     when: always
     paths:
       - $CI_PROJECT_DIR/target/debug
 
 
-.rustfmt:
+rustfmt:
   stage: build
   image: rustlang/rust:nightly-alpine3.17
   variables:
@@ -100,7 +100,7 @@ workflow:
 # service repo but instead be imported from the dedicated centralized security repo so that application developers
 # cannot circumvent potential dependency vulnerabilities by unilaterally creating exceptions.
 
-.dep-check:
+dep-check:
   stage: build
   variables:
     CODE_CLIMATE: |-
@@ -199,7 +199,7 @@ workflow:
       - $CARGO_HOME/bin
 
 
-.dep-audit:
+dep-audit:
   stage: build
   variables:
     CODE_CLIMATE: >-
@@ -327,7 +327,7 @@ unit-tests: &unit-tests
   dependencies: []
   cache:
     - *cargo-bin-cache
-    - key: $CI_PROJECT_PATH-$CI_JOB_NAME-$CI_COMMIT_REF_NAME
+    - key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-test-deps
       paths:
         - $CI_PROJECT_DIR/target/llvm-cov-target/debug
 
@@ -379,7 +379,7 @@ compile:linux-gnu: &compile
     - job: unit-tests
       artifacts: false
 
-.compile:linux-musl:
+compile:linux-musl:
   <<: *compile
   image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
   variables:
@@ -401,8 +401,11 @@ docker-image:
   image:
     name: gcr.io/kaniko-project/executor:v1.11.0-debug
     entrypoint: [""]
+  rules:
+    - if: $CI_MERGE_REQUEST_ID || $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: never
   before_script:
-    - if [ -z "$CI_COMMIT_TAG" ]; then tag=dev-${CI_COMMIT_BRANCH}; else tag=$CI_COMMIT_TAG; fi
+    - if [ -z "$CI_COMMIT_TAG" ]; then tag=dev-$CI_COMMIT_REF_NAME; else tag=$CI_COMMIT_TAG; fi
     - auth=$(echo -n "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" | base64)
     - 'echo "{\"auths\": {\"$CI_REGISTRY\": {\"auth\": \"$auth\"}}}" > /kaniko/.docker/config.json'
   script:
@@ -447,9 +450,9 @@ pages:
   script:
     - 'echo "Creating gitlab release: ${CI_COMMIT_TAG#v}"'
     - mkdir -p public
-    - cargo doc --no-deps --document-private-items --all-features && tar czvf docs.tar.gz target/doc
+    - cargo doc --no-deps --document-private-items --all-features && tar czf docs.tar.gz target/doc
     - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
-    # -  mdbook build -d public/book dev/book && tar czvf book.tar.gz public/book
+    # -  mdbook build -d public/book dev/book && tar czf book.tar.gz public/book
     - >-
       cat <<EOF > links.txt
       {
@@ -503,7 +506,12 @@ pages:
     paths:
       - public
       - '{docs,book}.tar.gz'
-  cache: *cargo-bin-cache
+  cache:
+    - *cargo-bin-cache
+    - key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-compiled-deps
+      policy: pull
+      paths:
+        - $CI_PROJECT_DIR/target/debug
 
 .cleanup:
   stage: .post
@@ -534,11 +542,12 @@ pages:
       -H "Authorization: Bearer $token"
       "$CI_REGISTRY/v2/$CI_REGISTRY_IMAGE/manifests/$manifest"
   cache:
-    - key: $CI_PROJECT_PATH-unit-tests-$CI_COMMIT_REF_NAME
+    - key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-test-deps
+      policy: push
       paths:
         - $CI_PROJECT_DIR/target/llvm-cov-target/debug
+    - key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-compiled-deps
       policy: push
-    - key: $CI_PROJECT_PATH-clippy-$CI_COMMIT_REF_NAME
       paths:
         - $CI_PROJECT_DIR/target/debug
 
