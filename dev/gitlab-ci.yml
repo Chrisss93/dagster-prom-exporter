@@ -343,14 +343,16 @@ compile:linux-gnu: &compile
   stage: deploy
   variables:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+  before_script:
+    - printenv
+    - cargo build --locked --release --timings
+    - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$CARGO_BUILD_TARGET.html
+    - mkdir -p binaries
   script:
-   - cargo build --locked --release --timings
-   - mv target/cargo-timings/cargo-timing.html target/cargo-timings/$CARGO_BUILD_TARGET.html
-  after_script:
-   - tar czvf target/binaries/$CARGO_BUILD_TARGET.tar.gz target/$CARGO_BUILD_TARGET/release/app
+    - tar czvf binaries/$CARGO_BUILD_TARGET.tar.gz target/$CARGO_BUILD_TARGET/release/app
   artifacts:
     paths:
-      - target/binaries/*
+      - binaries/*
       - target/cargo-timings/*.html
   dependencies: []
 
@@ -367,8 +369,8 @@ compile:windows:
   variables:
     CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
     RUSTFLAGS: -C linker=x86_64-w64-mingw32-gcc -C ar=/usr/x86_64-w64-mingw32/bin/ar
-  after_script:
-    - zip target/binaries/windows-gnu.zip target/$CARGO_BUILD_TARGET/release/app
+  script:
+    - zip binaries/$CARGO_BUILD_TARGET.zip target/$CARGO_BUILD_TARGET/release/app.exe
 
 
 docker-image:
