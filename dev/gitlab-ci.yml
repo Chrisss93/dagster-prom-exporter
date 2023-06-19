@@ -404,8 +404,8 @@ docker-image:
       --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${CI_COMMIT_MESSAGE/#v}
 #      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${${TAG:-$CI_COMMIT_TAG}/#v}
   dependencies: []
-  needs:
-    - unit-tests
+#  needs:
+#    - unit-tests
 
 pages:
   stage: .post
