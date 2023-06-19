@@ -20,7 +20,8 @@ workflow:
 
 .clippy:
   stage: build
-  variables: 
+  variables:
+    CLIPPY_FLAGS: --all-targets --all-features --locked --no-deps
     CODE_CLIMATE: |-
       .[].message | select(.code != null) | . as $$msg | .spans[] | [{
       "location": {"path": .file_name , "lines": {"begin": .line_start, "end": .line_end}},
@@ -46,7 +47,7 @@ workflow:
       )
   script:
     - >-
-      cargo clippy --all-targets --all-features --locked --message-format json |
+      cargo clippy $CLIPPY_FLAGS --message-format json |
       jq -s "$CODE_CLIMATE" > clippy.json
     - '[ -s clippy.json ] && cargo clippy --all-targets --all-features --locked && exit 222'
   artifacts:
@@ -56,6 +57,11 @@ workflow:
   allow_failure:
     exit_codes:
       - 222
+  cache:
+    key: $CI_PROJECT_PATH-$CI_JOB_NAME-$CI_COMMIT_REF_NAME
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/target/debug
 
 
 .rustfmt:
@@ -300,6 +306,7 @@ unit-tests: &unit-tests
     - '[ $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH ] && FILTER_ARGS=--include-ignored'
     - cargo llvm-cov nextest $TEST_ARGS -- $FILTER_ARGS
   after_script:
+    - echo "TEST_JOB_ID=$CI_JOB_ID" > .gitlab-env
     - cargo llvm-cov report
     - cargo llvm-cov report --html
     - >-
@@ -314,10 +321,15 @@ unit-tests: &unit-tests
       coverage_report:
         coverage_format: cobertura
         path: target/llvm-cov/coverage.xml
+      dotenv: .gitlab-env
     paths:
       - target/llvm-cov/html/
   dependencies: []
-  cache: *cargo-bin-cache
+  cache:
+    - *cargo-bin-cache
+    - key: $CI_PROJECT_PATH-$CI_JOB_NAME-$CI_COMMIT_REF_NAME
+      paths:
+        - $CI_PROJECT_DIR/target/llvm-cov-target/debug
 
 
 expensive-tests:
@@ -348,7 +360,7 @@ expensive-tests:
   dependencies: []
 
 
-.compile:linux-gnu: &compile
+compile:linux-gnu: &compile
   stage: deploy
   variables:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -374,7 +386,7 @@ expensive-tests:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-musl
     RUSTFLAGS: -C link-arg=-fuse-ld=mold
 
-.compile:windows:
+compile:windows:
   <<: *compile
   image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
   variables:
@@ -387,42 +399,36 @@ expensive-tests:
 docker-image:
   stage: deploy
   image:
-    name: gcr.io/kaniko-project/executor:v1.11.0-debug # Necessary because a shell is required
+    name: gcr.io/kaniko-project/executor:v1.11.0-debug
     entrypoint: [""]
-  # rules:
-  #   - if: $CI_COMMIT_TAG
   before_script:
+    - if [ -z "$CI_COMMIT_TAG" ]; then tag=dev-${CI_COMMIT_BRANCH}; else tag=$CI_COMMIT_TAG; fi
     - auth=$(echo -n "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" | base64)
     - 'echo "{\"auths\": {\"$CI_REGISTRY\": {\"auth\": \"$auth\"}}}" > /kaniko/.docker/config.json'
   script:
     - >-
-      /kaniko/executor
+      /kaniko/executor --cache
       --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
       --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
-      --cache
-      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${CI_COMMIT_MESSAGE#v}
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:$tag
   dependencies: []
   needs:
    - job: unit-tests
      artifacts: false
 
+
 pages:
   stage: .post
-  rules:
-    - if: $CI_COMMIT_TAG
+  # rules:
+  #   - if: $CI_COMMIT_TAG
   variables:
-    TAG: $CI_COMMIT_TAG
     PKG_REGISTRY: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic
     ASSETS: |-
       [
         {
           "name": "Documentation",
           "link_type": "runbook",
-          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/target/docs.tar.gz"
-        },
-        {
-          "name": "Full test coverage report",
-          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/target/coverage.tar.gz"
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/docs.tar.gz"
         },
         {
           "name": "Build time report",
@@ -438,13 +444,19 @@ pages:
     - *binstall
     - which cargo-about || cargo binstall -y cargo-about@0.5.6
     # - which mdbook || cargo binstall -y mdbook@0.4.29
-    - mkdir -p public
   script:
-    - 'echo "Creating gitlab release: ${TAG/#v}"'
-    - cargo doc --no-deps && tar czvf target/docs.tar.gz target/doc
+    - 'echo "Creating gitlab release: ${CI_COMMIT_TAG#v}"'
+    - mkdir -p public
+    - cargo doc --no-deps --document-private-items --all-features && tar czvf docs.tar.gz target/doc
     - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
     # -  mdbook build -d public/book dev/book && tar czvf book.tar.gz public/book
-    - tar czvf target/coverage.tar.gz target/llvm-cov/html
+    - >-
+      cat <<EOF > links.txt
+      {
+        "name": "Test coverage report",
+        "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$TEST_JOB_ID/artifacts"
+      }
+      EOF
     - cd target/binaries
     - |-
       for target in *
@@ -459,17 +471,18 @@ pages:
         EOF
       done
     - >-
-      jq -s --arg tag "${TAG/#v}" --argjson assets $ASSETS '
+      jq -s --arg tag "${CI_COMMIT_MESSAGE#v}" --argjson assets $ASSETS '
       {
         "name": "$tag",
-        "tag_name": "$CI_COMMIT_TAG",
+        "tag_name": "$CI_COMMIT_MESSAGE",
         "assets": {"links": (. + $assets)},
         "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
       }' links.txt |
-      curl $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases -X POST -d -
-      -H "PRIVATE-TOKEN: $CI_JOB_TOKEN" -H 'Content-Type: application/json' |
-      jq
-    - cd ../..
+      curl $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
+      -H "PRIVATE-TOKEN: $CI_JOB_TOKEN"
+      -H 'Content-Type: application/json'
+      -X POST -d - | jq
+    - cd $CI_PROJECT_DIR
     - echo "Setting up Pages"
     - mv target/doc public/docs
     - mv target/cargo-timings public/build-times
@@ -478,10 +491,10 @@ pages:
     - >-
       sed "
       s|__STUB_NAME__|$CI_PROJECT_NAME|g;
-      s|__STUB_VERSION__|${TAG/#v}|g;
+      s|__STUB_VERSION__|${CI_COMMIT_TAG#v}|g;
       s|__STUB_PIPELINE_ID__|$CI_PIPELINE_ID|g;
       s|__STUB_SOURCE_URL__|$CI_PROJECT_URL|g;
-      s|__STUB_RELEASE_URL__|$CI_PROJECT_URL/-/releases/${TAG/#v}|g;
+      s|__STUB_RELEASE_URL__|$CI_PROJECT_URL/-/releases/${CI_COMMIT_TAG#v}|g;
       s|__STUB_PIPELINE_URL__|$CI_PIPELINE_URL|g;
       s|__STUB__TIMING__URL__|$(rustc -vV | grep -oP '(?<=host: ).*').html|g;
       s|__STUB_DEPS__|$(cargo tree -e no-dev)|g;
@@ -489,7 +502,45 @@ pages:
   artifacts:
     paths:
       - public
-      - '{docs,coverage,book}.tar.gz'
+      - '{docs,book}.tar.gz'
+  cache: *cargo-bin-cache
+
+.cleanup:
+  stage: .post
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:1.1.0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
+      when: never
+  script:
+    - echo "Clearing up caches and images for $CI_COMMIT_BRANCH"
+    - rm -rf target/debug target/llvm-cov-target/debug
+    - scope=repository:$CI_REGISTRY_IMAGE:pull,delete
+    - >-
+      token=$(
+      curl -L -u $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD
+      $CI_SERVER_URL/jwt/auth?service=container_registry&scope=$scope |
+      jq -r '.token'
+      )
+    - >-
+      manifest=$(
+      curl -L -I
+      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json'
+      -H "Authorization: Bearer $token"
+      $CI_REGISTRY/v2/$CI_REGISTRY_IMAGE/manifests/$CI_COMMIT_BRANCH |
+      | awk '$1 == "Docker-Content-Digest:" { print $2 }'
+      )
+    - >-
+      curl -L -X DELETE
+      -H "Authorization: Bearer $token"
+      "$CI_REGISTRY/v2/$CI_REGISTRY_IMAGE/manifests/$manifest"
+  cache:
+    - key: $CI_PROJECT_PATH-unit-tests-$CI_COMMIT_REF_NAME
+      paths:
+        - $CI_PROJECT_DIR/target/llvm-cov-target/debug
+      policy: push
+    - key: $CI_PROJECT_PATH-clippy-$CI_COMMIT_REF_NAME
+      paths:
+        - $CI_PROJECT_DIR/target/debug
 
 
 .pages:
