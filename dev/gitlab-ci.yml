@@ -404,8 +404,8 @@ docker-image:
       --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${tag/#v}
   dependencies: []
   needs:
-   - jobs: unit-tests
-      artifacts: false
+   - job: unit-tests
+     artifacts: false
 
 pages:
   stage: .post
