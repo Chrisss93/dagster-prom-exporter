@@ -18,7 +18,7 @@ workflow:
       when: never
     - when: always
 
-clippy:
+.clippy:
   stage: build
   variables: 
     CODE_CLIMATE: |-
@@ -38,6 +38,7 @@ clippy:
       "type": "issue"
       }]
   before_script:
+    - which cargo-clippy || rustup component add clippy
     - &install-jq >-
       which jq || (
       wget https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -O $CI_PROJECT_DIR/jq &&
@@ -57,7 +58,7 @@ clippy:
       - 222
 
 
-rustfmt:
+.rustfmt:
   stage: build
   image: rustlang/rust:nightly-alpine3.17
   variables:
@@ -93,7 +94,7 @@ rustfmt:
 # service repo but instead be imported from the dedicated centralized security repo so that application developers
 # cannot circumvent potential dependency vulnerabilities by unilaterally creating exceptions.
 
-dep-check:
+.dep-check:
   stage: build
   variables:
     CODE_CLIMATE: |-
@@ -192,7 +193,7 @@ dep-check:
       - $CARGO_HOME/bin
 
 
-dep-audit:
+.dep-audit:
   stage: build
   variables:
     CODE_CLIMATE: >-
@@ -280,7 +281,7 @@ dep-audit:
   cache: *cargo-bin-cache
 
 
-unit-tests: &unit-tests
+.unit-tests: &unit-tests
   stage: test
   variables:
     TEST_ARGS: >-
@@ -347,7 +348,7 @@ expensive-tests:
   dependencies: []
 
 
-compile:linux-gnu: &compile
+.compile:linux-gnu: &compile
   stage: deploy
   variables:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -365,14 +366,14 @@ compile:linux-gnu: &compile
   needs:
     - unit-tests
 
-compile:linux-musl:
+.compile:linux-musl:
   <<: *compile
   image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
   variables:
     CARGO_BUILD_TARGET: x86_64-unknown-linux-musl
     RUSTFLAGS: -C link-arg=-fuse-ld=mold
 
-compile:windows:
+.compile:windows:
   <<: *compile
   image: registry.gitlab.com/chrisss93/rust-ci/alt-target:$RUST_VERSION
   variables:
