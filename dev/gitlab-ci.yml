@@ -281,7 +281,7 @@ workflow:
   cache: *cargo-bin-cache
 
 
-.unit-tests: &unit-tests
+unit-tests: &unit-tests
   stage: test
   variables:
     TEST_ARGS: >-
@@ -364,7 +364,8 @@ expensive-tests:
       - target/cargo-timings/$CARGO_BUILD_TARGET.html
   dependencies: []
   needs:
-    - unit-tests
+    - job: unit-tests
+      artifacts: false
 
 .compile:linux-musl:
   <<: *compile
@@ -390,21 +391,21 @@ docker-image:
     entrypoint: [""]
   # rules:
   #   - if: $CI_COMMIT_TAG
-  variables:
-    TAG: $CI_COMMIT_MESSAGE
   before_script:
     - auth=$(echo -n "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" | base64)
     - 'echo "{\"auths\": {\"$CI_REGISTRY\": {\"auth\": \"$auth\"}}}" > /kaniko/.docker/config.json'
   script:
+    - export tag=$CI_COMMIT_MESSAGE
     - >-
       /kaniko/executor
       --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
       --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
       --cache
-      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${TAG/#v}
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${tag/#v}
   dependencies: []
-#  needs:
-#    - unit-tests
+ needs:
+   - jobs: unit-tests
+      artifacts: false
 
 pages:
   stage: .post
