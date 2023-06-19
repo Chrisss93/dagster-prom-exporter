@@ -395,13 +395,12 @@ docker-image:
     - auth=$(echo -n "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" | base64)
     - 'echo "{\"auths\": {\"$CI_REGISTRY\": {\"auth\": \"$auth\"}}}" > /kaniko/.docker/config.json'
   script:
-    - export tag=$CI_COMMIT_MESSAGE
     - >-
       /kaniko/executor
       --context $CI_PROJECT_DIR/$DOCKER_CONTEXT
       --dockerfile $CI_PROJECT_DIR/${DOCKER_FILE:-Dockerfile}
       --cache
-      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${tag/#v}
+      --destination ${IMAGE:-$CI_REGISTRY_IMAGE}:${CI_COMMIT_MESSAGE#v}
   dependencies: []
   needs:
    - job: unit-tests
