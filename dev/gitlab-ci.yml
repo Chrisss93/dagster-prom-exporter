@@ -453,13 +453,6 @@ pages:
     - cargo doc --no-deps --document-private-items --all-features && tar czf docs.tar.gz target/doc
     - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
     # -  mdbook build -d public/book dev/book && tar czf book.tar.gz public/book
-    - |-
-      cat <<EOF > links.txt
-      {
-        "name": "Test coverage report",
-        "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$TEST_JOB_ID/artifacts"
-      }
-      EOF
     - cd binaries
     - |-
       for target in *
@@ -475,21 +468,29 @@ pages:
         }
       EOF
       done
+    - |-
+      cat <<EOF >> links.txt
+      {
+        "name": "Test coverage report",
+        "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$TEST_JOB_ID/artifacts"
+      }
+      EOF
     - echo $ASSETS | jq
     - jq -s '.' links.txt
     - >-
-      jq -s --arg tag "${CI_COMMIT_MESSAGE#v}" --argjson assets "$ASSETS" '
+      jq -s --arg tag "${CI_COMMIT_TAGs#v}" --argjson assets "$ASSETS" '
       {
         "name": "$tag",
-        "tag_name": "$CI_COMMIT_MESSAGE",
+        "tag_name": "$CI_COMMIT_TAG",
         "assets": {"links": (. + $assets)},
         "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
       }' links.txt > release.json
-    - >-
-      wget -O - $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
-      --header "JOB-TOKEN: $CI_JOB_TOKEN"
-      --header 'Content-Type: application/json'
-      --method POST --body-file release.json
+    - cat release.json | jq
+    # - >-
+    #   wget -O - $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
+    #   --header "JOB-TOKEN: $CI_JOB_TOKEN"
+    #   --header 'Content-Type: application/json'
+    #   --method POST --body-file release.json
     - cd $CI_PROJECT_DIR
     - echo "Setting up Pages"
     - mv target/doc public/docs
