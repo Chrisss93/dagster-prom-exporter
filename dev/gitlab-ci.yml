@@ -303,10 +303,11 @@ unit-tests: &unit-tests
     - which cargo-llvm-cov || cargo binstall -y cargo-llvm-cov@0.5.19
     - which cargo-nextest || cargo binstall -y cargo-nextest@0.9.53
   script:
-    - '[ $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH ] && FILTER_ARGS=--include-ignored'
+    - >-
+      if [ ! -z $CI_COMMIT_TAG ] || [ $CI_COMMIT_BRANCH_NAME == $CI_DEFAULT_BRANCH ];
+      then FILTER_ARGS=--include-ignored; fi;
     - cargo llvm-cov nextest $TEST_ARGS -- $FILTER_ARGS
   after_script:
-    - echo "TEST_JOB_ID=$CI_JOB_ID" > .gitlab-env
     - cargo llvm-cov report
     - cargo llvm-cov report --html
     - >-
@@ -321,7 +322,6 @@ unit-tests: &unit-tests
       coverage_report:
         coverage_format: cobertura
         path: target/llvm-cov/coverage.xml
-      dotenv: .gitlab-env
     paths:
       - target/llvm-cov/html/
   dependencies: []
@@ -335,7 +335,7 @@ unit-tests: &unit-tests
 .expensive-tests:
   <<: *unit-tests
   rules: &manualExceptOnMaster
-    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: never
     - when: manual
   script:
@@ -434,6 +434,10 @@ pages:
           "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/docs.tar.gz"
         },
         {
+          "name": "Test coverage report",
+          "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/coverage.tar.gz"
+        },
+        {
           "name": "Build time report",
           "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$CI_JOB_ID/artifacts/public/build-time.html"
         },
@@ -452,6 +456,7 @@ pages:
     - mkdir -p public
     - cargo doc --no-deps --document-private-items --all-features && tar czf docs.tar.gz target/doc
     - cargo about generate -o public/licenses.html -c .cargo/about/about.toml .cargo/about/about.hbs
+    - tar czf coverage.tar.gz target/llvm-cov/html
     # -  mdbook build -d public/book dev/book && tar czf book.tar.gz public/book
     - cd binaries
     - |-
@@ -468,22 +473,13 @@ pages:
         }
       EOF
       done
-    - |-
-      cat <<EOF >> links.txt
-      {
-        "name": "Test coverage report",
-        "url": "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/$TEST_JOB_ID/artifacts"
-      }
-      EOF
-    - echo $ASSETS | jq
-    - jq -s '.' links.txt
     - >-
       jq -s --arg tag "${CI_COMMIT_TAGs#v}" --argjson assets "$ASSETS" '
       {
         "name": "$tag",
         "tag_name": "$CI_COMMIT_TAG",
-        "assets": {"links": (. + $assets)},
-        "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
+        "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE",
+        "assets": {"links": (. + $assets)}
       }' links.txt > release.json
     - cat release.json | jq
     # - >-
@@ -506,12 +502,12 @@ pages:
       s|__STUB_RELEASE_URL__|$CI_PROJECT_URL/-/releases/${CI_COMMIT_TAG#v}|g;
       s|__STUB_PIPELINE_URL__|$CI_PIPELINE_URL|g;
       s|__STUB__TIMING__URL__|$(rustc -vV | grep -oP '(?<=host: ).*').html|g;
-      s|__STUB_DEPS__|$(cargo tree -e no-dev)|g;
+      s|__STUB_DEPS__|\ncargo tree -e no-dev|e;
       " dev/index.html > public/index.html
   artifacts:
     paths:
       - public
-      - '{docs,book}.tar.gz'
+      - '{docs,coverage,book}.tar.gz'
   cache:
     - *cargo-bin-cache
     - key: $CI_PROJECT_PATH-$CI_COMMIT_REF_NAME-compiled-deps
