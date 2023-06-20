@@ -481,10 +481,10 @@ pages:
         "assets": {"links": (. + $assets)},
         "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
       }' links.txt |
-      curl $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
-      -H "PRIVATE-TOKEN: $CI_JOB_TOKEN"
-      -H 'Content-Type: application/json'
-      -X POST -d - | jq
+      wget $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
+      --header 'JOB-TOKEN: $CI_JOB_TOKEN'
+      --header 'Content-Type: application/json'
+      --method POST --post-data - -O - | jq
     - cd $CI_PROJECT_DIR
     - echo "Setting up Pages"
     - mv target/doc public/docs
