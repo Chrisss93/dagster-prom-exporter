@@ -464,7 +464,8 @@ pages:
     - |-
       for target in *
       do
-        url=$PKG_REGISTRY/${target%%.*}/$CI_COMMIT_TAG/app.${target##*.}
+        # url=$PKG_REGISTRY/${target%%.*}/$CI_COMMIT_TAG/app.${target##*.}
+        url=$PKG_REGISTRY/${target%%.*}/0.0.1/app.${target##*.}
         wget -O - $url --header "JOB-TOKEN: $CI_JOB_TOKEN" --method PUT --body-file $target
         cat <<EOF >> links.txt
         {
