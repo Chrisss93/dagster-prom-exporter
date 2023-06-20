@@ -464,13 +464,12 @@ pages:
     - |-
       for target in *
       do
-        wget -O - $PKG_REGISTRY/$CI_COMMIT_TAG/$target \
-        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-        --method PUT --body-file $target
+        url=$PKG_REGISTRY/${target%%.*}/$CI_COMMIT_TAG/app.${target##*.}
+        wget -O - $url --header "JOB-TOKEN: $CI_JOB_TOKEN" --method PUT --body-file $target
         cat <<EOF >> links.txt
         {
           "name": "Binary (${target%%.*})",
-          "url": "$PKG_REGISTRY/$CI_COMMIT_TAG/$target",
+          "url": "$url",
           "direct_asset_path": "binaries/$target"
         }
       EOF
@@ -482,11 +481,12 @@ pages:
         "tag_name": "$CI_COMMIT_MESSAGE",
         "assets": {"links": (. + $assets)},
         "description": "Triggered by git tag: $CI_COMMIT_TAG\n$CI_COMMIT_TAG_MESSAGE"
-      }' links.txt |
+      }' links.txt > release.json
+    - >-
       wget -O - $CI_API_V4_URL/projects/$CI_PROJECT_ID/releases
       --header "JOB-TOKEN: $CI_JOB_TOKEN"
       --header 'Content-Type: application/json'
-      --method POST --body-data - | jq
+      --method POST --body-file release.json
     - cd $CI_PROJECT_DIR
     - echo "Setting up Pages"
     - mv target/doc public/docs
