@@ -5,4 +5,5 @@ include:
 
 variables:
   ENABLE_SUPPLY_CHAIN: 'true'
+  ENABLE_AUDITS: 'true'
 
