@@ -464,8 +464,8 @@ pages:
     - |-
       for target in *
       do
-        # url=$PKG_REGISTRY/${target%%.*}/$CI_COMMIT_TAG/app.${target##*.}
-        url=$PKG_REGISTRY/${target%%.*}/0.0.1/app.${target##*.}
+        # url=$PKG_REGISTRY/${target%%.*}/$CI_COMMIT_TAG/app.${target#*.}
+        url=$PKG_REGISTRY/${target%%.*}/0.0.1/app.${target#*.}
         wget -O - $url --header "JOB-TOKEN: $CI_JOB_TOKEN" --method PUT --body-file $target
         cat <<EOF >> links.txt
         {
@@ -475,8 +475,10 @@ pages:
         }
       EOF
       done
+    - echo $ASSETS | jq
+    - jq -s '.' links.txt
     - >-
-      jq -s --arg tag "${CI_COMMIT_MESSAGE#v}" --argjson assets $ASSETS '
+      jq -s --arg tag "${CI_COMMIT_MESSAGE#v}" --argjson assets "$ASSETS" '
       {
         "name": "$tag",
         "tag_name": "$CI_COMMIT_MESSAGE",
