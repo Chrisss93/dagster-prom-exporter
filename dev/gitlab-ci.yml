@@ -471,7 +471,7 @@ pages:
           "url": "$PKG_REGISTRY/$CI_COMMIT_TAG/$target",
           "direct_asset_path": "binaries/$target"
         }
-        EOF
+      EOF
       done
     - >-
       jq -s --arg tag "${CI_COMMIT_MESSAGE#v}" --argjson assets $ASSETS '
