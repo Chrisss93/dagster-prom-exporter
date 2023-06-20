@@ -1,0 +1,8 @@
+include:
+  - project: chrisss93/rust-ci
+    ref: main
+    file: /template.gitlab-ci.yml
+
+variables:
+  ENABLE_SUPPLY_CHAIN: 'true'
+
