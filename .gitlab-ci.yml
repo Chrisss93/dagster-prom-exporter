@@ -1,6 +1,6 @@
 include:
   - project: chrisss93/rust-ci
-    ref: main
+    ref: bugfix
     file: /template.gitlab-ci.yml
 
 variables:
