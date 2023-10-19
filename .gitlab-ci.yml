@@ -1,0 +1,9 @@
+include:
+  - project: chrisss93/rust-ci
+    ref: bugfix
+    file: /template.gitlab-ci.yml
+
+variables:
+  ENABLE_SUPPLY_CHAIN: 'true'
+  ENABLE_AUDITS: 'true'
+

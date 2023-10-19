@@ -60,7 +60,7 @@ async fn handler(stream: TcpStream, metrics: Rc<RwLock<exporter::Exporter>>) -> 
                 match metrics.write() {
                     Err(e) => return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into()),
                     Ok(mut x) => if let Err(e) = x.query().await {
-                        return resp.status(StatusCode::NOT_FOUND).body(e.to_string().into());
+                        return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into());
                     }
                 };
 
