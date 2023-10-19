@@ -8,9 +8,13 @@ RUN apt-get update && \
 
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/config.toml .cargo/config.toml
-RUN cargo chef prepare && cargo chef cook --release
+RUN cargo chef prepare --bin app
+RUN cargo chef cook --release --bin app
 
-COPY src graphql
+# cargo chef modifies the toml+lock files so restore the originals first
+COPY Cargo.toml Cargo.lock ./
+COPY src src
+COPY graphql graphql
 RUN cargo build --locked --release --bin app
 
 FROM gcr.io/distroless/cc-debian11:nonroot
