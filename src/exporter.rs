@@ -6,38 +6,45 @@ use prometheus_client::encoding::text::encode as prom_encode;
 use prometheus_client::registry::Registry;
 use reqwest::Client;
 
-use std::time::{UNIX_EPOCH, SystemTime};
+use std::rc::Rc;
+use std::sync::{RwLock, PoisonError};
 
 mod metrics;
 mod update;
 mod labels;
 mod float_gauge;
 
-pub(crate) struct Exporter {
+pub struct Exporter {
     url: String,
-    metrics: metrics::Metrics,
+    metrics: RwLock<metrics::Metrics>,
     registry: Registry,
     client: Client,
-    cursor: f64
+    refresh: Rc<RwLock<bool>>,
 }
 
 impl Exporter {
-    pub(crate) fn new(url: String) -> Exporter {
+    pub fn new(url: String, refresh: Rc<RwLock<bool>>) -> Exporter {
         let metrics = metrics::Metrics::new();
         let registry = metrics.registry(true);
         Exporter{
             url: url,
-            metrics: metrics,
+            metrics: RwLock::new(metrics),
             registry: registry,
             client: Client::builder().user_agent("prometheus-exporter/0.1.0").build().expect("http client"),
-            cursor: SystemTime::now().duration_since(UNIX_EPOCH).expect("clock time").as_secs_f64()
+            refresh: refresh,
         }
     }
 
-    pub(crate) async fn query(&mut self) -> Result<()> {
+    pub async fn query(&self) -> Result<()> {
+        if !*self.refresh.read().map_err(Exporter::poisoned)? {
+            return Ok(())
+        }
+
+        let mut m = self.metrics.write().map_err(Exporter::poisoned)?;
+
         let vars = dagit_query::Variables{
             concurrency_metrics: true,
-            runs_since: self.cursor,
+            runs_since: m.cursor,
         };
 
         let resp = post_graphql::<DagitQuery, _>(&self.client, &self.url, vars)
@@ -45,19 +52,27 @@ impl Exporter {
             .map_err(anyhow::Error::msg)?
             .data.ok_or(anyhow::Error::msg("empty data"))?;
 
-        self.set_run_metrics(resp.runs_or_error);
-        self.set_workspace_metrics(resp.workspace_or_error);
-        self.set_daemon_metrics(resp.instance.daemon_health);
+        m.set_run_metrics(resp.runs_or_error);
+        m.set_workspace_metrics(resp.workspace_or_error);
+        m.set_daemon_metrics(resp.instance.daemon_health);
 
         if true {
-            self.set_concurrency_metrics(resp.instance.concurrency_limits)
+            m.set_concurrency_metrics(resp.instance.concurrency_limits)
         }
+
+        let mut b = self.refresh.write().map_err(Exporter::poisoned)?;
+        *b = false;
+
         return Ok(());
     }
 
-    pub(crate) fn encode(&self) -> Result<Bytes, std::fmt::Error> {
+    pub fn encode(&self) -> Result<Bytes, std::fmt::Error> {
         let mut buffer = BytesMut::new();
         prom_encode(&mut buffer, &self.registry).map(|_| buffer.freeze())
+    }
+
+    fn poisoned<T>(e: PoisonError<T>) -> anyhow::Error {
+        anyhow::Error::msg(e.to_string())
     }
 }
 

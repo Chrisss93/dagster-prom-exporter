@@ -1,13 +1,16 @@
 use prometheus_client::{registry::Registry, metrics::{family::Family, gauge::Gauge}};
 
-use crate::exporter::float_gauge::GaugeF;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::float_gauge::GaugeF;
 use super::labels::*;
 
 pub(super) struct Metrics {
+    pub(super) cursor: f64,
+
     pub(super) run_duration_seconds: GaugeF<RunLabel>,
     pub(super) run_queue_seconds: GaugeF<RunLabel>,
-    pub(crate) runs_by_instigation_total: Family<InstigationLabel, Gauge>,
+    pub(super) runs_by_instigation_total: Family<InstigationLabel, Gauge>,
 
     pub(super) step_duration_seconds: GaugeF<StepLabel>,
     pub(super) step_attempts: Family<StepLabel, Gauge>,
@@ -26,6 +29,7 @@ pub(super) struct Metrics {
 impl Metrics {
     pub(super) fn new() -> Metrics {
          Metrics {
+            cursor: SystemTime::now().duration_since(UNIX_EPOCH).expect("clock time").as_secs_f64(),
             run_duration_seconds: GaugeF::<RunLabel>::default(),
             run_queue_seconds: GaugeF::<RunLabel>::default(),
             runs_by_instigation_total: Family::<InstigationLabel, Gauge>::default(),
