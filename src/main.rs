@@ -1,13 +1,15 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use exporter::Exporter;
 use hyper::http::{Method, StatusCode};
 use hyper::service::service_fn;
 use hyper::server::conn::Http;
 use hyper::{Body, Response};
-use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::rc::Rc;
 use std::sync::RwLock;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::{Duration, interval};
 
 mod exporter;
 
@@ -28,45 +30,53 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&addr).await?;
     println!("Listening on {}", addr);
 
-    let metrics = Rc::new(RwLock::new(exporter::Exporter::new(args.dagit_url)));
+    let mut timer = interval(Duration::from_secs(args.refresh));
+    let refresh = Rc::new(RwLock::new(true));
+    let refresh_timer = Rc::clone(&refresh);
+
+    tokio::task::spawn_local(async move {
+        loop {
+            timer.tick().await;
+            let mut b = refresh.write().unwrap();
+            *b = true;
+        }
+    });
+
+    let exporter = Rc::new(Exporter::new(args.dagit_url, refresh_timer));
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let metrics = Rc::clone(&metrics);
+        let exporter = Rc::clone(&exporter);
 
         tokio::task::spawn_local(async move {
-            if let Err(e) = handler(stream, metrics).await {
+            if let Err(e) = metrics_handler(stream, exporter).await {
                 eprintln!("Error serving connection: {:?}", e);
             }
         });
     }
 }
 
-async fn handler(stream: TcpStream, metrics: Rc<RwLock<exporter::Exporter>>) -> Result<(), hyper::Error> {
+async fn metrics_handler(stream: TcpStream, exporter: Rc<exporter::Exporter>) -> Result<(), hyper::Error> {
     Http::new()
         .with_executor(LocalExec)
         .http1_only(true)
-        .serve_connection(stream, service_fn(move |req| {
+        .serve_connection(stream, service_fn(|req| {
 
-            let metrics = Rc::clone(&metrics);
             let resp = Response::builder();
+            let exporter = Rc::clone(&exporter);
             async move {
-                if req.method() != Method::GET && req.uri() != "/metrics" {
+                if req.method() != Method::GET || req.uri() != "/metrics" {
                     return resp
                         .status(StatusCode::NOT_FOUND)
                         .body(Body::from("only GET requests on the /metrics route are supported"));
                 }
 
-                match metrics.write() {
-                    Err(e) => return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into()),
-                    Ok(mut x) => if let Err(e) = x.query().await {
-                        return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into());
-                    }
-                };
+                if let Err(e) = exporter.query().await {
+                    return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into());
+                }
 
-                 match metrics.read().map(|x| x.encode()) {
-                    Ok(Ok(b)) => resp.body(b.into()),
-                    Ok(Err(e)) => resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into()),
+                match exporter.encode() {
+                    Ok(b) => resp.body(b.into()),
                     Err(e) => resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into())
                 }
             }
@@ -75,8 +85,6 @@ async fn handler(stream: TcpStream, metrics: Rc<RwLock<exporter::Exporter>>) -> 
 }
 
 
-const LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-
 #[derive(Parser)]
 struct Args {
     /// The url for the Dagster deployment's Dagit GraphQL API
@@ -84,11 +92,20 @@ struct Args {
     dagit_url: String,
 
     /// The network host on which to expose prometheus metrics
-    #[arg(short = 'a', long = "listener-host", value_parser = valid_ip, default_value_t = LOCAL_ADDR)]
+    #[arg(
+        short = 'a', long = "listener-host",
+        value_parser = |s: &str| s.parse::<IpAddr>(),
+        default_value_t = IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+    )]
     host: IpAddr,
+
     /// The port on which to expose prometheus metrics
     #[arg(short = 'p', long = "listener-port", default_value_t = 3001)]
     port: u16,
+
+    /// How many seconds the exporter should serve old metrics before re-querying the Dagit GraphQL API
+    #[arg(short, long, default_value_t = 5)]
+    refresh: u64
 }
 
 fn valid_url(s: &str) -> Result<String> {
@@ -99,9 +116,6 @@ fn valid_url(s: &str) -> Result<String> {
     }
 }
 
-fn valid_ip(s: &str) -> Result<IpAddr, AddrParseError> {
-    s.parse::<IpAddr>()
-}
 
 #[derive(Clone)]
 struct LocalExec;
