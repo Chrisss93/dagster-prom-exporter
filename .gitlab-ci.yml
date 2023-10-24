@@ -1,9 +1,33 @@
 include:
   - project: chrisss93/rust-ci
     ref: bugfix
-    file: /template.gitlab-ci.yml
+    file: template.gitlab-ci.yml
 
 variables:
   ENABLE_SUPPLY_CHAIN: 'true'
   ENABLE_AUDITS: 'true'
 
+expensive-tests:
+  extends: unit-tests
+  services:
+    - name: docker:dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    TESTCONTAINER_IMAGE: $CI_REGISTRY_IMAGE/integration
+  script:
+    - >-
+      auth=$(echo '{
+      "username": "CI_REGISTRY_USER",
+      "password": "$CI_REGISTRY_PASSWORD",
+      "serveraddress": "$CI_REGISTRY"}' |
+      base64)
+    - >-
+      wget -O - --method POST --header "X-Registry-Auth: $auth"
+      ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE
+    - cargo llvm-cov nextest $TEST_ARGS -- --ignored
+  rules:
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual

@@ -9,10 +9,21 @@ impl Metrics {
 
         let Runs(r) = runs else { return };
         
+        // match runs {
+        //     Runs(_) => todo!(),
+        //     DagitQueryRunsOrError::InvalidPipelineRunsFilterError => todo!(),
+        //     DagitQueryRunsOrError::PythonError => todo!(),
+        // }
+
+        if let Some(i) = r.count {
+            self.exporter_last_scrape_runs.set(i);
+        }
+
         for run in r.results.into_iter() {
 
             if let Some(u) = run.update_time {
                 if self.cursor < u {
+                    self.exporter_last_scrape_timestamp.set(u);
                     self.cursor = u;
                 }
             }
@@ -23,6 +34,8 @@ impl Metrics {
                 CommonLabel::new(run.repository_origin, run.pipeline_name),
             );
             self.clear_old_run_states(&label);
+
+            self.run_total.get_or_create(&label).inc();
 
             if let (Some(start), Some(end)) = (run.start_time, run.end_time) {
                 self.run_duration_seconds.get_or_create(&label).set(end - start);
@@ -35,6 +48,7 @@ impl Metrics {
             
             for step in run.step_stats.into_iter() {
                 let label = label.step_label(step.step_key, step.status);
+                self.step_total.get_or_create(&label).inc();
                 self.clear_old_step_states(&label);
 
                 self.step_attempts.get_or_create(&label).set(step.attempts.len() as i64);
@@ -43,7 +57,7 @@ impl Metrics {
                 }
                 for expectation in step.expectation_results.into_iter() {
                     let label = label.expectation_label(expectation.label);
-                    self.expectation_success.get_or_create(&label).set(expectation.success as i64);
+                    self.expectation_failure.get_or_create(&label).set(!expectation.success as i64);
                 }
             }
 
@@ -158,8 +172,8 @@ impl Metrics {
             if label.status != status_variant {
                 let mut old_label = label.clone();
                 old_label.status = status_variant;
-                self.step_attempts.remove(&label);
-                self.step_duration_seconds.remove(&label);
+                self.step_attempts.remove(&old_label);
+                self.step_duration_seconds.remove(&old_label);
             }
         }
     }
