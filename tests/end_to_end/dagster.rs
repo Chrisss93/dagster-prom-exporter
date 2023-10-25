@@ -83,10 +83,10 @@ pub (super) async fn wait_for_pipelines(req: RequestBuilder, max_wait: Duration,
             }
         }
     }).await
-    .is_ok_and(|_| true)
+    .is_ok()
 }
 
-pub(super) async fn pipelines_ready(req: RequestBuilder,  run_ids: &Vec<String>) -> bool {
+pub(super) async fn pipelines_ready(req: RequestBuilder, run_ids: &Vec<String>) -> bool {
     let response = req.header("Content-Type", "application/graphql")
         .body(indoc! {"
             query {

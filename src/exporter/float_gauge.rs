@@ -2,9 +2,9 @@ use parking_lot::MappedRwLockReadGuard;
 use prometheus_client::encoding::{EncodeMetric, MetricEncoder};
 use prometheus_client::metrics::{family::Family, MetricType, gauge};
 
-use std::fmt::Debug;
-use std::sync::atomic::AtomicU64;
-use std::hash::Hash;
+use core::fmt::{Debug, Formatter, Result};
+use core::sync::atomic::AtomicU64;
+use core::hash::Hash;
 
 /// Type alias for a Metric implementation for a float-64 prometheus Gauge.
 /// Ironically, it was meant to provide more shorthand but now I have to implement all the important
@@ -33,18 +33,18 @@ impl <L: Clone + Hash + Eq + PartialEq> GaugeF<L> {
 
 impl <L> Default for GaugeF<L> where Family<L, InnerFloat>: Default {
     fn default() -> Self {
-        Self(Default::default())
+        Self(Family::default())
     }
 }
 
 impl <L> Clone for GaugeF<L> where Family<L, InnerFloat>: Clone {
     fn clone(&self) -> Self {
-        GaugeF(self.0.clone())
+        Self(self.0.clone())
     }
 }
 
 impl <L> EncodeMetric for GaugeF<L> where Family<L, InnerFloat>: EncodeMetric {
-    fn encode(&self, encoder: MetricEncoder<'_, '_>) -> Result<(), std::fmt::Error> {
+    fn encode(&self, encoder: MetricEncoder<'_, '_>) -> Result {
         self.0.encode(encoder)
     }
     fn metric_type(&self) -> MetricType {
@@ -53,7 +53,7 @@ impl <L> EncodeMetric for GaugeF<L> where Family<L, InnerFloat>: EncodeMetric {
 }
 
 impl <L> Debug for GaugeF<L> where Family<L, InnerFloat>: Debug {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         self.0.fmt(f)
     }
 }

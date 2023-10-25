@@ -2,21 +2,23 @@ use dagster_prom_exporter::serve;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use tokio::runtime;
 use tokio::task::LocalSet;
+use url::Url;
 
 use std::net::{IpAddr, Ipv6Addr};
 
-// TODO: Replace RwLock with the cheaper RefCell since we are in a single-threaded environment.
-
 fn main() -> anyhow::Result<()> {
     // Local, single-threaded execution
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .expect("build runtime");
+        .build()?;
+        // .expect("build runtime");
 
     let args = Args::parse();
-    LocalSet::new().block_on(&rt, serve(args.dagit_url, args.host, args.port, args.refresh))
+    LocalSet::new().block_on(&rt,
+        serve(args.dagit_url, args.host, args.port, args.refresh, args.concurrency_metrics)
+    )
 }
 
 #[derive(Parser)]
@@ -39,13 +41,16 @@ struct Args {
 
     /// How many seconds the exporter should serve old metrics before re-querying the Dagit GraphQL API
     #[arg(short, long, default_value_t = 5)]
-    refresh: u64
+    refresh: u64,
+
+    #[arg(short, long, default_value_t = false)]
+    concurrency_metrics: bool
 }
 
 fn valid_url(s: &str) -> Result<String> {
-    match url::Url::parse(s) {
-        Err(e) => Err(e.into()),
+    match Url::parse(s) {
         Ok(u) if u.has_host() => Ok(u.into()),
+        Err(e) => Err(e.into()),
         _ => Err(anyhow!("missing a url scheme")),
     }
 }

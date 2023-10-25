@@ -1,7 +1,7 @@
 use prometheus_client::registry::{Registry, Unit};
 use prometheus_client::metrics::{family::Family, gauge::Gauge, counter::Counter};
 
-use std::sync::atomic::AtomicU64;
+use core::sync::atomic::AtomicU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::float_gauge::GaugeF;
@@ -31,11 +31,13 @@ pub(super) struct Metrics {
 
     pub(super) exporter_last_scrape_runs: Gauge,
     pub(super) exporter_last_scrape_timestamp: Gauge<f64, AtomicU64>,
+
+    pub(super) concurrency_metrics: bool,
 }
 
 impl Metrics {
-    pub(super) fn new() -> Metrics {
-         Metrics {
+    pub(super) fn new(concurrency_metrics: bool) -> Self {
+         Self {
             cursor: SystemTime::now().duration_since(UNIX_EPOCH).expect("clock time").as_secs_f64(),
 
             run_total: Family::<RunLabel, Counter>::default(),
@@ -59,10 +61,12 @@ impl Metrics {
 
             exporter_last_scrape_runs: Gauge::default(),
             exporter_last_scrape_timestamp: Gauge::<f64, AtomicU64>::default(),
+
+            concurrency_metrics
         }
     }
 
-    pub(super) fn registry(&self, concurrency_metrics: bool) -> Registry {
+    pub(super) fn registry(&self) -> Registry {
         let mut registry =  <Registry>::default();
         registry.register(
             "run",
@@ -124,7 +128,7 @@ impl Metrics {
             Unit::Seconds,
             self.workspace_location_last_update_seconds.clone()
         );
-        if concurrency_metrics {
+        if self.concurrency_metrics {
             registry.register(
                 "concurrency_slots",
                 "The total number of tagged concurrency slots available for the Dagster instance",
@@ -156,6 +160,6 @@ impl Metrics {
             "The timestamp of the exporter's last query to Dagit",
             self.exporter_last_scrape_timestamp.clone()
         );
-        return registry;
+        registry
     }
 }
