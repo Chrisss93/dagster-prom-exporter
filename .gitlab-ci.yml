@@ -1,6 +1,5 @@
 include:
   - project: chrisss93/rust-ci
-    ref: msrv
     file: template.gitlab-ci.yml
 
 variables:
@@ -23,7 +22,7 @@ expensive-tests:
       \"username\": \"$CI_REGISTRY_USER\",
       \"password\": \"$CI_REGISTRY_PASSWORD\",
       \"serveraddress\": \"$CI_REGISTRY\"
-      }" | base64)
+      }" | base64 -w 0)
     - >-
       wget -O - --method POST --header "X-Registry-Auth: $auth"
       ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE || touch .push
