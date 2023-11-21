@@ -12,7 +12,7 @@ use std::fs::File;
 use std::net::{IpAddr, Ipv6Addr};
 use std::path::Path;
 
-pub(super) async fn end_to_end(img_name: &str, img_tag: &str) {
+pub async fn end_to_end(img_name: &str, img_tag: &str) {
     // Prepare docker container running dagster
     let docker_client = docker::Client::new();
     docker_client.build_local_image(
@@ -38,7 +38,7 @@ pub(super) async fn end_to_end(img_name: &str, img_tag: &str) {
         Path::new("/dagster/usercode.py")
     ).await.expect("Failed to copy usercode file to container");
 
-    let dagit_url = format!("http://{}:{}/graphql", docker_client.host, dagster.get_host_port_ipv4(3000).await);
+    let dagit_url = format!("http://{}:{}/graphql", docker_client.host(), dagster.get_host_port_ipv4(3000).await);
 
     // Start the dagster prometheus exporter
     println!("Dagster docker container: {}", dagster.id());

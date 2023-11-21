@@ -20,14 +20,19 @@ expensive-tests:
   script:
     - >-
       auth=$(echo '{
-      "username": "CI_REGISTRY_USER",
+      "username": "$CI_REGISTRY_USER",
       "password": "$CI_REGISTRY_PASSWORD",
-      "serveraddress": "$CI_REGISTRY"}' |
-      base64)
+      "serveraddress": "$CI_REGISTRY"
+      }' | base64)
     - >-
       wget -O - --method POST --header "X-Registry-Auth: $auth"
-      ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE
+      ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE || touch .push
     - cargo llvm-cov nextest $TEST_ARGS -- --ignored
+    - >-
+      if [ -f ".push" ]; then
+      wget -O -  --method POST --header "X-Registry-Auth: $auth"
+      ${DOCKER_HOST#*://}/images/$TESTCONTAINER_IMAGE/push ;
+      fi
   rules:
     - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - when: manual

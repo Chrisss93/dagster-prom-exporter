@@ -17,7 +17,7 @@ anyhow = { version = "1" }
 parking_lot = { version = "0.12.1" }
 
 [dev-dependencies]
-testcontainers = { version = "0.15.0", features = ["experimental"], path = "../testcontainers-rs/testcontainers" }
+testcontainers = { version = "0.15.0", features = ["experimental"] }
 bollard = { version = "0.13.0" }
 futures-util = { version = "0.3.28" }
 tar = { version = "0.4.40" }
@@ -25,6 +25,9 @@ tokio = { version = "1.28.2", features = ["macros"] }
 prometheus-parse = { version = "0.2.4" }
 serde_json = { version = "1" }
 indoc = { version = "2" }
+
+[patch.crates-io]
+testcontainers = { git = "https://github.com/Chrisss93/testcontainers-rs.git", branch = "experimental_inner_client" }
 
 [[bin]]
 name = "app"

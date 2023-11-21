@@ -5,15 +5,15 @@ use serde_json::{json, Value};
 
 use std::fmt::{Display, Formatter, Result};
 
-pub(super) struct DagsterPipeline<'a> {
+pub struct DagsterPipeline<'a> {
     name: &'a str,
     is_asset: bool,
     run_config: Option<&'a str>,
 }
 
 impl<'a> DagsterPipeline<'a> {
-    pub(super) fn new(name: &'a str, is_asset: bool, run_config: Option<&'a str>) -> DagsterPipeline<'a> {
-        DagsterPipeline { name: name, is_asset, run_config }
+    pub fn new(name: &'a str, is_asset: bool, run_config: Option<&'a str>) -> DagsterPipeline<'a> {
+        DagsterPipeline { name, is_asset, run_config }
     }
 }
 
@@ -50,7 +50,7 @@ impl Display for DagsterPipeline<'_> {
     }
 }
 
-pub(super) async fn run_dagster_pipelines(req: RequestBuilder, pipelines: Vec<DagsterPipeline<'_>>) -> Vec<String> {
+pub async fn run_dagster_pipelines(req: RequestBuilder, pipelines: Vec<DagsterPipeline<'_>>) -> Vec<String> {
     let graphql = pipelines.iter().fold(String::new(), |acc, x| format!("{}\n{}", acc, x));
     let response = req.header("Content-Type", "application/graphql")
         .body(format!("mutation{{{graphql}}}"))
@@ -72,21 +72,21 @@ pub(super) async fn run_dagster_pipelines(req: RequestBuilder, pipelines: Vec<Da
         .collect()
 }
 
-pub (super) async fn wait_for_pipelines(req: RequestBuilder, max_wait: Duration, run_ids: Vec<String>) -> bool {
+pub async fn wait_for_pipelines(req: RequestBuilder, max_wait: Duration, run_ids: Vec<String>) -> bool {
     timeout(max_wait, async {
         loop {
             if pipelines_ready(req.try_clone().unwrap(), &run_ids).await {
                 break;
             }
             else {
-                sleep(Duration::from_secs(1)).await;
+                sleep(Duration::from_millis(250)).await;
             }
         }
     }).await
-    .is_ok_and(|_| true)
+    .is_ok()
 }
 
-pub(super) async fn pipelines_ready(req: RequestBuilder,  run_ids: &Vec<String>) -> bool {
+pub async fn pipelines_ready(req: RequestBuilder, run_ids: &Vec<String>) -> bool {
     let response = req.header("Content-Type", "application/graphql")
         .body(indoc! {"
             query {
