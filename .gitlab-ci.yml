@@ -19,11 +19,11 @@ expensive-tests:
     TESTCONTAINER_IMAGE: $CI_REGISTRY_IMAGE/integration
   script:
     - >-
-      auth=$(echo '{
-      "username": "$CI_REGISTRY_USER",
-      "password": "$CI_REGISTRY_PASSWORD",
-      "serveraddress": "$CI_REGISTRY"
-      }' | base64)
+      auth=$(echo "{
+      \"username\": \"$CI_REGISTRY_USER\",
+      \"password\": \"$CI_REGISTRY_PASSWORD\",
+      \"serveraddress\": \"$CI_REGISTRY\"
+      }" | base64)
     - >-
       wget -O - --method POST --header "X-Registry-Auth: $auth"
       ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE || touch .push
