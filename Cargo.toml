@@ -2,6 +2,9 @@
 name = "dagster-prom-exporter"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70.0"
+repository = "https://gitlab.com/Chrisss93/dagster-prom-exporter"
+keywords = ["metrics"]
 
 [dependencies]
 hyper = { version = "0.14.26", features = ["server", "http1"] }
