@@ -1,11 +1,14 @@
+use prometheus_client::metrics::{counter::Counter, family::Family, gauge::Gauge};
 use prometheus_client::registry::{Registry, Unit};
-use prometheus_client::metrics::{family::Family, gauge::Gauge, counter::Counter};
 
-use core::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::float_gauge::GaugeF;
-use super::labels::*;
+use super::labels::{
+    DaemonStatusLabel, ExpectationLabel, InstigationLabel, MaterializationLabel, RunLabel, StepLabel,
+    WorkspaceLocationLabel
+};
 
 pub(super) struct Metrics {
     pub(super) cursor: f64,
@@ -20,7 +23,7 @@ pub(super) struct Metrics {
     pub(super) step_attempts: Family<StepLabel, Gauge>,
     pub(super) expectation_failure: Family<ExpectationLabel, Gauge>,
     pub(super) asset_materialization_timestamp: GaugeF<MaterializationLabel>,
-    
+
     pub(super) daemon_last_heartbeat_seconds: GaugeF<DaemonStatusLabel>,
     pub(super) workspace_location_last_update_seconds: GaugeF<WorkspaceLocationLabel>,
 
@@ -32,12 +35,12 @@ pub(super) struct Metrics {
     pub(super) exporter_last_scrape_runs: Gauge,
     pub(super) exporter_last_scrape_timestamp: Gauge<f64, AtomicU64>,
 
-    pub(super) concurrency_metrics: bool,
+    pub(super) concurrency_metrics: bool
 }
 
 impl Metrics {
     pub(super) fn new(concurrency_metrics: bool) -> Self {
-         Self {
+        Self {
             cursor: SystemTime::now().duration_since(UNIX_EPOCH).expect("clock time").as_secs_f64(),
 
             run_total: Family::<RunLabel, Counter>::default(),
@@ -67,7 +70,7 @@ impl Metrics {
     }
 
     pub(super) fn registry(&self) -> Registry {
-        let mut registry =  <Registry>::default();
+        let mut registry = <Registry>::default();
         registry.register(
             "run",
             "The cumulative total number of runs since the exporter was started",

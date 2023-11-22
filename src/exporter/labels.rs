@@ -1,4 +1,6 @@
 use prometheus_client::encoding::EncodeLabelSet;
+
+#[allow(clippy::wildcard_imports)]
 use super::dagit_query::*;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -9,45 +11,37 @@ pub(super) struct CommonLabel {
 }
 
 impl CommonLabel {
-    pub(super) fn new(repo: Option<DagitQueryRunsOrErrorOnRunsResultsRepositoryOrigin>, job: String) -> CommonLabel {
+    pub(super) fn new(repo: Option<DagitQueryRunsOrErrorOnRunsResultsRepositoryOrigin>, job: String) -> Self {
         match repo {
             Some(r) => Self {
                 workspace_location: Some(r.repository_location_name),
                 repository_name: Some(r.repository_name),
                 pipeline_name: job
             },
-            None => Self {
-                workspace_location: None,
-                repository_name: None,
-                pipeline_name: job
-            },
+            None => Self { workspace_location: None, repository_name: None, pipeline_name: job }
         }
     }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct RunLabel {
-  pub(super) status: String,
-  mode: String,
-  #[prometheus(flatten)]
-  common: CommonLabel,
+    pub(super) status: String,
+    mode: String,
+    #[prometheus(flatten)]
+    common: CommonLabel
 }
 
 impl RunLabel {
     pub(super) const fn new(status: String, mode: String, common: CommonLabel) -> Self {
-        Self {status, mode, common}
+        Self { status, mode, common }
     }
-    pub (super) fn step_label(&self, step_key: String, status: Option<StepEventStatus>) -> StepLabel {
-        StepLabel {
-            common: self.common.clone(),
-            step_key,
-            status: status.map(|x| format!("{x:?}"))
-        }
+    pub(super) fn step_label(&self, step_key: String, status: Option<StepEventStatus>) -> StepLabel {
+        StepLabel { common: self.common.clone(), step_key, status: status.map(|x| format!("{x:?}")) }
     }
-    pub(super) fn asset_label(&self,
-        step_key: Option<String>,
-        asset_key: &DagitQueryRunsOrErrorOnRunsResultsAssetMaterializationsAssetKey,
-        partition: Option<String>) -> MaterializationLabel {
+    pub(super) fn asset_label(
+        &self, step_key: Option<String>, asset_key: &DagitQueryRunsOrErrorOnRunsResultsAssetMaterializationsAssetKey,
+        partition: Option<String>
+    ) -> MaterializationLabel {
         MaterializationLabel {
             common: self.common.clone(),
             step_key,
@@ -59,22 +53,17 @@ impl RunLabel {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct StepLabel {
-  step_key: String,
-  pub(super) status: Option<String>,
-  #[prometheus(flatten)]
-  common: CommonLabel
+    step_key: String,
+    pub(super) status: Option<String>,
+    #[prometheus(flatten)]
+    common: CommonLabel
 }
 
 impl StepLabel {
     pub(super) fn expectation_label(&self, label: Option<String>) -> ExpectationLabel {
-        ExpectationLabel {
-            common: self.common.clone(),
-            step_key: self.step_key.clone(),
-            label,
-        }
+        ExpectationLabel { common: self.common.clone(), step_key: self.step_key.clone(), label }
     }
 }
-
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct ExpectationLabel {
@@ -95,20 +84,19 @@ pub(super) struct MaterializationLabel {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct SensorLabel {
-  workspace_location: String,
-  repository_name: String,
-  name: String,
-  sensor_type: String,
-  eval_interval: i32,
-  
+    workspace_location: String,
+    repository_name: String,
+    name: String,
+    sensor_type: String,
+    eval_interval: i32
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct DaemonStatusLabel {
-  id: String,
-  daemon_type: String,
-  required: String,
-  healthy: Option<String>,
+    id: String,
+    daemon_type: String,
+    required: String,
+    healthy: Option<String>
 }
 
 impl DaemonStatusLabel {
@@ -117,16 +105,15 @@ impl DaemonStatusLabel {
             id: daemon.id,
             daemon_type: daemon.daemon_type,
             required: daemon.required.to_string(),
-            healthy: daemon.healthy.map(|x| x.to_string()),
+            healthy: daemon.healthy.map(|x| x.to_string())
         }
     }
 }
 
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct WorkspaceLocationLabel {
-  workspace_location: String,
-  load_status: String
+    workspace_location: String,
+    load_status: String
 }
 
 impl WorkspaceLocationLabel {
@@ -140,10 +127,10 @@ impl WorkspaceLocationLabel {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(super) struct InstigationLabel {
-  workspace_location: String,
-  repository_name: String,
-  instigation_name: String,
-  instigation_type: String,
+    workspace_location: String,
+    repository_name: String,
+    instigation_name: String,
+    instigation_type: String
 }
 
 impl InstigationLabel {

@@ -10,13 +10,11 @@ use std::net::{IpAddr, Ipv6Addr};
 
 fn main() -> anyhow::Result<()> {
     // Local, single-threaded execution
-    let rt = runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-        // .expect("build runtime");
+    let rt = runtime::Builder::new_current_thread().enable_all().build()?;
 
     let args = Args::parse();
-    LocalSet::new().block_on(&rt,
+    LocalSet::new().block_on(
+        &rt,
         serve(args.dagit_url, args.host, args.port, args.refresh, args.concurrency_metrics)
     )
 }
@@ -51,6 +49,6 @@ fn valid_url(s: &str) -> Result<String> {
     match Url::parse(s) {
         Ok(u) if u.has_host() => Ok(u.into()),
         Err(e) => Err(e.into()),
-        _ => Err(anyhow!("missing a url scheme")),
+        _ => Err(anyhow!("missing a url scheme"))
     }
 }
