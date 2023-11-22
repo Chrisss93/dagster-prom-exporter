@@ -52,6 +52,8 @@ impl Client {
             BuildImageOptions {
                 dockerfile: "Dockerfile",
                 t: &name,
+                cachefrom: vec![&name],
+                forcerm: true,
                 ..Default::default()
             },
             None, 
