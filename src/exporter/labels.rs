@@ -11,12 +11,12 @@ pub(super) struct CommonLabel {
 impl CommonLabel {
     pub(super) fn new(repo: Option<DagitQueryRunsOrErrorOnRunsResultsRepositoryOrigin>, job: String) -> CommonLabel {
         match repo {
-            Some(r) => CommonLabel {
+            Some(r) => Self {
                 workspace_location: Some(r.repository_location_name),
                 repository_name: Some(r.repository_name),
                 pipeline_name: job
             },
-            None => CommonLabel {
+            None => Self {
                 workspace_location: None,
                 repository_name: None,
                 pipeline_name: job
@@ -34,25 +34,25 @@ pub(super) struct RunLabel {
 }
 
 impl RunLabel {
-    pub(super) fn new(status: String, mode: String, common: CommonLabel) -> RunLabel {
-        RunLabel {status, mode, common}
+    pub(super) const fn new(status: String, mode: String, common: CommonLabel) -> Self {
+        Self {status, mode, common}
     }
     pub (super) fn step_label(&self, step_key: String, status: Option<StepEventStatus>) -> StepLabel {
         StepLabel {
             common: self.common.clone(),
-            step_key: step_key,
-            status: status.map(|x| format!("{:?}", x))
+            step_key,
+            status: status.map(|x| format!("{x:?}"))
         }
     }
     pub(super) fn asset_label(&self,
         step_key: Option<String>,
-        asset_key: DagitQueryRunsOrErrorOnRunsResultsAssetMaterializationsAssetKey,
+        asset_key: &DagitQueryRunsOrErrorOnRunsResultsAssetMaterializationsAssetKey,
         partition: Option<String>) -> MaterializationLabel {
         MaterializationLabel {
             common: self.common.clone(),
-            step_key: step_key,
+            step_key,
             asset_key: asset_key.path.join("/"),
-            partition: partition
+            partition
         }
     }
 }
@@ -70,7 +70,7 @@ impl StepLabel {
         ExpectationLabel {
             common: self.common.clone(),
             step_key: self.step_key.clone(),
-            label: label,
+            label,
         }
     }
 }
@@ -112,8 +112,8 @@ pub(super) struct DaemonStatusLabel {
 }
 
 impl DaemonStatusLabel {
-    pub(super) fn new(daemon: DagitQueryInstanceDaemonHealthAllDaemonStatuses) -> DaemonStatusLabel {
-        DaemonStatusLabel {
+    pub(super) fn new(daemon: DagitQueryInstanceDaemonHealthAllDaemonStatuses) -> Self {
+        Self {
             id: daemon.id,
             daemon_type: daemon.daemon_type,
             required: daemon.required.to_string(),
@@ -130,8 +130,8 @@ pub(super) struct WorkspaceLocationLabel {
 }
 
 impl WorkspaceLocationLabel {
-    pub(super) fn new(workspace: &DagitQueryWorkspaceOrErrorOnWorkspaceLocationEntries) -> WorkspaceLocationLabel {
-        WorkspaceLocationLabel {
+    pub(super) fn new(workspace: &DagitQueryWorkspaceOrErrorOnWorkspaceLocationEntries) -> Self {
+        Self {
             workspace_location: workspace.name.clone(),
             load_status: format!("{:?}", workspace.load_status)
         }
@@ -147,8 +147,8 @@ pub(super) struct InstigationLabel {
 }
 
 impl InstigationLabel {
-    pub(super) fn new(workspace: String, repo: String, name: String, i_type: String) -> InstigationLabel {
-        InstigationLabel {
+    pub(super) const fn new(workspace: String, repo: String, name: String, i_type: String) -> Self {
+        Self {
             workspace_location: workspace,
             repository_name: repo,
             instigation_name: name,

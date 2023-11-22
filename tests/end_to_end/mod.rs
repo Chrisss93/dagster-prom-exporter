@@ -43,7 +43,7 @@ pub async fn end_to_end(img_name: &str, img_tag: &str) {
     // Start the dagster prometheus exporter
     println!("Dagster docker container: {}", dagster.id());
     let _exporter = spawn_local(
-        dagster_prom_exporter::serve(dagit_url.clone(), IpAddr::V6(Ipv6Addr::LOCALHOST), 3001,  5)
+        dagster_prom_exporter::serve(dagit_url.clone(), IpAddr::V6(Ipv6Addr::LOCALHOST), 3001,  5, false)
     );
     let exporter_url = "http://localhost:3001/metrics";
     let http = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();

@@ -120,7 +120,7 @@ pub async fn pipelines_ready(req: RequestBuilder, run_ids: &Vec<String>) -> bool
         })
 }
 
-pub(super) async fn load_usercode(req: RequestBuilder) -> bool {
+pub async fn load_usercode(req: RequestBuilder) -> bool {
     let response = req.header("Content-Type", "application/graphql")
         .body(indoc! {"
             mutation {

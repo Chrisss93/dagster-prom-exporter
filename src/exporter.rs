@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use graphql_client::GraphQLQuery;
 use graphql_client::reqwest::post_graphql;
@@ -6,52 +6,54 @@ use prometheus_client::encoding::text::encode as prom_encode;
 use prometheus_client::registry::Registry;
 use reqwest::Client;
 
+use core::cell::RefCell;
+use core::fmt;
 use std::rc::Rc;
-use std::sync::{RwLock, PoisonError};
 
 mod metrics;
 mod update;
 mod labels;
 mod float_gauge;
 
+use metrics::Metrics;
+
 pub struct Exporter {
     url: String,
-    metrics: RwLock<metrics::Metrics>,
+    metrics: RefCell<Metrics>,
     registry: Registry,
     client: Client,
-    refresh: Rc<RwLock<bool>>,
+    refresh: Rc<RefCell<bool>>,
 }
 
 impl Exporter {
-    pub fn new(url: String, refresh: Rc<RwLock<bool>>) -> Exporter {
-        let metrics = metrics::Metrics::new();
-        let registry = metrics.registry(true);
-        Exporter{
-            url: url,
-            metrics: RwLock::new(metrics),
-            registry: registry,
+    pub fn new(url: String, refresh: Rc<RefCell<bool>>, concurrency_metrics: bool) -> Self {
+        let metrics = Metrics::new(concurrency_metrics);
+        let registry = metrics.registry();
+        Self {
+            url,
+            metrics: RefCell::new(metrics),
+            registry,
             client: Client::builder().user_agent("prometheus-exporter/0.1.0").build().expect("http client"),
-            refresh: refresh,
+            refresh,
         }
     }
 
     pub async fn query(&self) -> Result<()> {
-        if !*self.refresh.read().map_err(Exporter::poisoned)? {
+        if !*self.refresh.borrow() {
             return Ok(())
         }
 
-        let mut m = self.metrics.write().map_err(Exporter::poisoned)?;
-
         let vars = dagit_query::Variables{
             concurrency_metrics: true,
-            runs_since: m.cursor,
+            runs_since: self.metrics.borrow().cursor,
         };
 
         let resp = post_graphql::<DagitQuery, _>(&self.client, &self.url, vars)
             .await
             .map_err(anyhow::Error::msg)?
-            .data.ok_or(anyhow::Error::msg("empty data"))?;
+            .data.ok_or_else(|| anyhow!("empty data"))?;
 
+        let mut m = self.metrics.borrow_mut();
         m.set_run_metrics(resp.runs_or_error);
         m.set_workspace_metrics(resp.workspace_or_error);
         m.set_daemon_metrics(resp.instance.daemon_health);
@@ -60,19 +62,13 @@ impl Exporter {
             m.set_concurrency_metrics(resp.instance.concurrency_limits)
         }
 
-        let mut b = self.refresh.write().map_err(Exporter::poisoned)?;
-        *b = false;
-
-        return Ok(());
+        *self.refresh.borrow_mut() = false;
+        Ok(())
     }
 
-    pub fn encode(&self) -> Result<Bytes, std::fmt::Error> {
+    pub fn encode(&self) -> Result<Bytes, fmt::Error> {
         let mut buffer = BytesMut::new();
         prom_encode(&mut buffer, &self.registry).map(|_| buffer.freeze())
-    }
-
-    fn poisoned<T>(e: PoisonError<T>) -> anyhow::Error {
-        anyhow::Error::msg(e.to_string())
     }
 }
 

@@ -36,6 +36,28 @@ testcontainers = { git = "https://github.com/Chrisss93/testcontainers-rs.git", b
 name = "app"
 path = "src/main.rs"
 
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+restriction = "warn"
+nursery = "warn"
+
+float_arithmetic = "allow"
+future_not_send = "allow"
+implicit_return = "allow"
+ignored_unit_patterns = "allow"
+min_ident_chars = "allow"
+multiple_inherent_impl = "allow"
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
+multiple_unsafe_ops_per_block = "allow"
+pub_with_shorthand = "allow"
+semicolon_if_nothing_returned = "allow"
+single_call_fn = "allow"
+shadow_reuse = "allow"
+shadow_unrelated = "allow"
+std_instead_of_alloc = "allow"
+
 [profile.release]
 debug = false
 debug-assertions = false
