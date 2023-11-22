@@ -1,5 +1,6 @@
 include:
   - project: chrisss93/rust-ci
+    ref: rust-lints
     file: template.gitlab-ci.yml
 
 variables:
