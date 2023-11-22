@@ -18,6 +18,6 @@ COPY src src
 COPY graphql graphql
 RUN cargo build --locked --release --bin app
 
-FROM gcr.io/distroless/cc-debian11:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /build/target/release/app /app
 ENTRYPOINT ["/app"]
