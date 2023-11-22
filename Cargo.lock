@@ -1547,6 +1547,7 @@ dependencies = [
 [[package]]
 name = "testcontainers"
 version = "0.15.0"
+source = "git+https://github.com/Chrisss93/testcontainers-rs.git?branch=experimental_inner_client#babf0cff7744595a87ce0f36b2f3ef2177b849ea"
 dependencies = [
  "async-trait",
  "bollard",

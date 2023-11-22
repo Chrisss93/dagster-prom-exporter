@@ -8,24 +8,20 @@ use std::env;
 use std::fs::File;
 use std::path::Path;
 
-pub(super) struct Client {
+pub struct Client {
     inner: Docker,
-    pub host: String
+    host: String
 }
 
 impl Client {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         let host = env::var("DOCKER_HOST").ok()
             .map(|ref h| Url::parse(h).expect(&format!("Can't parse DOCKER_HOST: {h}")));
 
-        match &host {
+        match host {
             Some(x) if !matches!(x.scheme(), "unix" | "npipe") => Self {
                 inner: Docker::connect_with_http_defaults().unwrap(),
-                host: host
-                    .as_ref()
-                    .and_then(|x| x.host_str())
-                    .map(|x| x.to_string())
-                    .unwrap_or("localhost".to_string())
+                host: x.host_str().unwrap().to_string()
             },
             Some(x) => Self {
                 inner: Docker::connect_with_socket(x.path(), 60, bollard::API_DEFAULT_VERSION).unwrap(),
@@ -36,25 +32,13 @@ impl Client {
                 host: Self::socket_host()
             }
         }
-        // if let Some(x) = &host {
-        //     if !matches!(x.scheme(), "unix" | "npipe") {
-        //         return Self {
-        //             inner: Docker::connect_with_http_defaults().unwrap(),
-        //             host: host
-        //                 .as_ref()
-        //                 .and_then(|x| x.host_str())
-        //                 .map(|x| x.to_string())
-        //                 .unwrap_or("localhost".to_string())
-        //         }
-        //     }
-        // }
-        // Self {
-        //     inner: Docker::connect_with_socket_defaults().unwrap(),
-        //     host: Self::socket_host()
-        // }
     }
 
-    pub(super) async fn build_local_image(
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub async fn build_local_image(
         &self, image: &str, tag: &str, mut dockerfile: File) -> Result<(), bollard::errors::Error> {
 
         let mut tarball: Vec<u8> = Vec::new();
@@ -68,6 +52,8 @@ impl Client {
             BuildImageOptions {
                 dockerfile: "Dockerfile",
                 t: &name,
+                cachefrom: vec![&name],
+                forcerm: true,
                 ..Default::default()
             },
             None, 
@@ -83,7 +69,7 @@ impl Client {
         return Ok(());
     }
 
-    pub(super) async fn copy_file(
+    pub async fn copy_file(
         &self, container_id: &str, mut src_file: File, dest_path: &Path) -> Result<(), bollard::errors::Error> {
 
         let mut tarball: Vec<u8> = Vec::new();
@@ -103,9 +89,10 @@ impl Client {
     }
 
     fn socket_host() -> String {
-        match Path::new("/.dockerenv").is_file() {
-            true => Self::docker_in_docker_host().unwrap(),
-            false => "localhost".to_string()
+        if Path::new("/.dockerenv").is_file() {
+            Self::docker_in_docker_host().unwrap()
+        } else {
+            "localhost".to_string()
         }
     }
     fn docker_in_docker_host() -> anyhow::Result<String> {

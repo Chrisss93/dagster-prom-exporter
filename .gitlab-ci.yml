@@ -1,6 +1,5 @@
 include:
   - project: chrisss93/rust-ci
-    ref: bugfix
     file: template.gitlab-ci.yml
 
 variables:
@@ -16,18 +15,24 @@ expensive-tests:
     DOCKER_HOST: "tcp://docker:2375"
     DOCKER_TLS_CERTDIR: ""
     DOCKER_DRIVER: overlay2
-    TESTCONTAINER_IMAGE: $CI_REGISTRY_IMAGE/integration
+    TESTCONTAINER_IMAGE: $CI_REGISTRY_IMAGE/integration:latest
   script:
     - >-
-      auth=$(echo '{
-      "username": "CI_REGISTRY_USER",
-      "password": "$CI_REGISTRY_PASSWORD",
-      "serveraddress": "$CI_REGISTRY"}' |
-      base64)
+      auth=$(echo "{
+      \"username\": \"$CI_REGISTRY_USER\",
+      \"password\": \"$CI_REGISTRY_PASSWORD\",
+      \"serveraddress\": \"$CI_REGISTRY\"
+      }" | base64 -w 0)
     - >-
       wget -O - --method POST --header "X-Registry-Auth: $auth"
-      ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE
+      ${DOCKER_HOST#*://}/images/create?fromImage=$TESTCONTAINER_IMAGE || touch .push
     - cargo llvm-cov nextest $TEST_ARGS -- --ignored
+    - >-
+      if [ -f ".push" ]; then
+      wget -O -  --method POST --header "X-Registry-Auth: $auth"
+      ${DOCKER_HOST#*://}/images/$TESTCONTAINER_IMAGE/push ;
+      fi
   rules:
     - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
     - when: manual
