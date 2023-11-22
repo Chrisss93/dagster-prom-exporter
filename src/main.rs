@@ -1,89 +1,23 @@
+use dagster_prom_exporter::serve;
+
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use exporter::Exporter;
-use hyper::http::{Method, StatusCode};
-use hyper::service::service_fn;
-use hyper::server::conn::Http;
-use hyper::{Body, Response};
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::rc::Rc;
-use std::sync::RwLock;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::{Duration, interval};
+use tokio::task::LocalSet;
 
-mod exporter;
+use std::net::{IpAddr, Ipv6Addr};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+// TODO: Replace RwLock with the cheaper RefCell since we are in a single-threaded environment.
+
+fn main() -> anyhow::Result<()> {
     // Local, single-threaded execution
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("build runtime");
 
-    let executor = tokio::task::LocalSet::new();
-    executor.block_on(&rt, serve())
-}
-
-async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let addr: SocketAddr = (args.host, args.port).into();
-    let listener = TcpListener::bind(&addr).await?;
-    println!("Listening on {}", addr);
-
-    let mut timer = interval(Duration::from_secs(args.refresh));
-    let refresh = Rc::new(RwLock::new(true));
-    let refresh_timer = Rc::clone(&refresh);
-
-    tokio::task::spawn_local(async move {
-        loop {
-            timer.tick().await;
-            let mut b = refresh.write().unwrap();
-            *b = true;
-        }
-    });
-
-    let exporter = Rc::new(Exporter::new(args.dagit_url, refresh_timer));
-
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let exporter = Rc::clone(&exporter);
-
-        tokio::task::spawn_local(async move {
-            if let Err(e) = metrics_handler(stream, exporter).await {
-                eprintln!("Error serving connection: {:?}", e);
-            }
-        });
-    }
+    LocalSet::new().block_on(&rt, serve(args.dagit_url, args.host, args.port, args.refresh))
 }
-
-async fn metrics_handler(stream: TcpStream, exporter: Rc<exporter::Exporter>) -> Result<(), hyper::Error> {
-    Http::new()
-        .with_executor(LocalExec)
-        .http1_only(true)
-        .serve_connection(stream, service_fn(|req| {
-
-            let resp = Response::builder();
-            let exporter = Rc::clone(&exporter);
-            async move {
-                if req.method() != Method::GET || req.uri() != "/metrics" {
-                    return resp
-                        .status(StatusCode::NOT_FOUND)
-                        .body(Body::from("only GET requests on the /metrics route are supported"));
-                }
-
-                if let Err(e) = exporter.query().await {
-                    return resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into());
-                }
-
-                match exporter.encode() {
-                    Ok(b) => resp.body(b.into()),
-                    Err(e) => resp.status(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string().into())
-                }
-            }
-        }))
-        .await
-}
-
 
 #[derive(Parser)]
 struct Args {
@@ -113,15 +47,5 @@ fn valid_url(s: &str) -> Result<String> {
         Err(e) => Err(e.into()),
         Ok(u) if u.has_host() => Ok(u.into()),
         _ => Err(anyhow!("missing a url scheme")),
-    }
-}
-
-
-#[derive(Clone)]
-struct LocalExec;
-
-impl<F: std::future::Future + 'static> hyper::rt::Executor<F> for LocalExec {
-    fn execute(&self, fut: F) {
-        tokio::task::spawn_local(fut);
     }
 }

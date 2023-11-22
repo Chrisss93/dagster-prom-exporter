@@ -79,7 +79,6 @@ impl Exporter {
 #[derive(GraphQLQuery)]
 #[graphql(
     query_path = "graphql/dagit_query.graphql",
-    // schema_path = "graphql/dagit_introspection_schema.json",
     schema_path = "graphql/dagit_schema.graphql",
     response_derives = "Debug,PartialEq",
 )]
