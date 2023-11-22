@@ -1,4 +1,4 @@
-FROM registry.gitlab.com/chrisss93/rust-ci/chef:1.69.0 AS builder
+FROM registry.gitlab.com/chrisss93/rust-ci/chef:1.74.0 AS builder
 LABEL stage=builder
 WORKDIR /app
 
