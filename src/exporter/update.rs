@@ -1,6 +1,6 @@
-
+#[allow(clippy::wildcard_imports)]
 use super::dagit_query::*;
-use super::labels::*;
+use super::labels::{CommonLabel, DaemonStatusLabel, InstigationLabel, RunLabel, StepLabel, WorkspaceLocationLabel};
 use super::metrics::Metrics;
 
 impl Metrics {
@@ -15,7 +15,6 @@ impl Metrics {
         }
 
         for run in r.results {
-
             if let Some(u) = run.update_time {
                 if self.cursor < u {
                     self.exporter_last_scrape_timestamp.set(u);
@@ -26,7 +25,7 @@ impl Metrics {
             let label = RunLabel::new(
                 format!("{:?}", run.status),
                 run.mode,
-                CommonLabel::new(run.repository_origin, run.pipeline_name),
+                CommonLabel::new(run.repository_origin, run.pipeline_name)
             );
             self.clear_old_run_states(&label);
 
@@ -40,7 +39,7 @@ impl Metrics {
                     self.run_queue_seconds.get_or_create(&label).set(end - start);
                 }
             }
-            
+
             for step in run.step_stats {
                 let label = label.step_label(step.step_key, step.status);
                 self.step_total.get_or_create(&label).inc();
@@ -52,7 +51,7 @@ impl Metrics {
                 }
                 for expectation in step.expectation_results {
                     let label = label.expectation_label(expectation.label);
-                    self.expectation_failure.get_or_create(&label).set(!expectation.success as i64);
+                    self.expectation_failure.get_or_create(&label).set(i64::from(!expectation.success));
                 }
             }
 
@@ -68,20 +67,21 @@ impl Metrics {
     pub(super) fn set_workspace_metrics(&self, workspaces: DagitQueryWorkspaceOrError) {
         use DagitQueryWorkspaceOrError::Workspace;
         use DagitQueryWorkspaceOrErrorOnWorkspaceLocationEntriesLocationOrLoadError::RepositoryLocation;
-        
+
         let Workspace(w) = workspaces else { return };
         self.workspace_location_last_update_seconds.clear();
-        
+
         for workspace in w.location_entries {
             self.workspace_location_last_update_seconds
                 .get_or_create(&WorkspaceLocationLabel::new(&workspace))
                 .set(workspace.updated_timestamp);
 
-            let Some(RepositoryLocation(location)) = workspace.location_or_load_error else { return };
+            let Some(RepositoryLocation(location)) = workspace.location_or_load_error else {
+                return;
+            };
             self.runs_by_instigation_total.clear();
-            
-            for repo in location.repositories {
 
+            for repo in location.repositories {
                 for sensor in repo.sensors {
                     let label = InstigationLabel::new(
                         workspace.name.clone(),
@@ -89,9 +89,7 @@ impl Metrics {
                         sensor.name,
                         format!("sensor_{:?}", sensor.sensor_type)
                     );
-                    self.runs_by_instigation_total
-                        .get_or_create(&label)
-                        .set(sensor.sensor_state.runs_count);
+                    self.runs_by_instigation_total.get_or_create(&label).set(sensor.sensor_state.runs_count);
                 }
 
                 for schedule in repo.schedules {
@@ -101,9 +99,7 @@ impl Metrics {
                         schedule.name,
                         format!("schedule_{}", schedule.mode)
                     );
-                    self.runs_by_instigation_total
-                        .get_or_create(&label)
-                        .set(schedule.schedule_state.runs_count);
+                    self.runs_by_instigation_total.get_or_create(&label).set(schedule.schedule_state.runs_count);
                 }
             }
         }
@@ -113,9 +109,7 @@ impl Metrics {
         self.daemon_last_heartbeat_seconds.clear();
         for daemon in daemons.all_daemon_statuses {
             if let Some(heartbeat) = daemon.last_heartbeat_time {
-                self.daemon_last_heartbeat_seconds
-                    .get_or_create(&DaemonStatusLabel::new(daemon))
-                    .set(heartbeat);
+                self.daemon_last_heartbeat_seconds.get_or_create(&DaemonStatusLabel::new(daemon)).set(heartbeat);
             }
         }
     }
@@ -137,17 +131,16 @@ impl Metrics {
 
     /// Clear out label sets for outdated run states
     fn clear_old_run_states(&self, label: &RunLabel) {
-        use RunStatus::*;
         let variants = [
-            QUEUED,
-            NOT_STARTED,
-            MANAGED,
-            STARTING,
-            STARTED,
-            SUCCESS,
-            FAILURE,
-            CANCELING,
-            CANCELED
+            RunStatus::QUEUED,
+            RunStatus::NOT_STARTED,
+            RunStatus::MANAGED,
+            RunStatus::STARTING,
+            RunStatus::STARTED,
+            RunStatus::SUCCESS,
+            RunStatus::FAILURE,
+            RunStatus::CANCELING,
+            RunStatus::CANCELED
         ];
         for status_variant in variants.map(|s| format!("{s:?}")) {
             if label.status != status_variant {
